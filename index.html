@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#3b6ef6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="每日单词">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<title>每日单词 · 专升本/四级/Python</title>
+<style>
+:root{
+  --bg:#f4f6fb; --card:#fff; --pri:#3b6ef6; --pri-d:#2c56cc; --pri-l:#eaf0ff;
+  --txt:#1c2333; --sub:#6b7488; --line:#e8ecf4;
+  --ok:#12b886; --bad:#f0454c; --warn:#f59f00; --radius:14px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;font-size:15px}
+body{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+button,input,textarea,select{font-family:inherit;font-size:15px;color:inherit}
+button{border:none;background:none;cursor:pointer}
+.hide{display:none!important}
+header{position:sticky;top:0;z-index:50;background:linear-gradient(135deg,#3b6ef6,#5b8bff);
+  color:#fff;padding:calc(10px + env(safe-area-inset-top)) 14px 12px}
+header h1{margin:0;font-size:17px;font-weight:600;display:flex;align-items:center;gap:8px}
+header .sub{font-size:12px;opacity:.85;margin-top:3px}
+main{padding:12px}
+.card{background:var(--card);border-radius:var(--radius);padding:14px;margin-bottom:12px;box-shadow:0 2px 10px rgba(28,35,51,.05)}
+.card h3{margin:0 0 10px;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+.muted{color:var(--sub);font-size:12.5px;line-height:1.6}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--pri);color:#fff;
+  border-radius:10px;padding:11px 16px;font-size:15px;font-weight:500;min-height:44px}
+.btn:active{background:var(--pri-d)}
+.btn.light{background:var(--pri-l);color:var(--pri)}
+.btn.gray{background:#eef1f7;color:var(--txt)}
+.btn.line{background:#fff;border:1px solid var(--line);color:var(--txt)}
+.btn.block{display:flex;width:100%}
+.btn.sm{padding:7px 12px;min-height:36px;font-size:13.5px;border-radius:9px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1;min-width:0}
+textarea,input[type=text],input[type=number],select{width:100%;border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;background:#fff;outline:none}
+textarea{min-height:96px;resize:vertical;line-height:1.5}
+input:focus,textarea:focus,select:focus{border-color:var(--pri)}
+label.f{display:block;font-size:13px;color:var(--sub);margin:10px 0 6px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.chip{background:#eef1f7;border-radius:20px;padding:7px 14px;font-size:13.5px;color:#48536b}
+.chip.on{background:var(--pri);color:#fff}
+.chip.add{border:1px dashed var(--pri);color:var(--pri);background:#fff}
+/* 单词卡 */
+.w{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+.w:last-child{border-bottom:none}
+.w .wb{flex:1;min-width:0}
+.w .ww{font-size:16px;font-weight:600;word-break:break-all}
+.w .wp{font-size:12.5px;color:var(--pri);margin-top:2px;font-family:"Times New Roman",serif}
+.w .wc{font-size:13px;color:var(--sub);margin-top:2px;line-height:1.45}
+.w .act{display:flex;gap:6px}
+.iconbtn{width:38px;height:38px;border-radius:10px;background:#f0f3f9;display:flex;align-items:center;justify-content:center;font-size:16px}
+.iconbtn:active{background:#e3e8f2}
+.tag{display:inline-block;background:#eef1f7;color:#5b6478;border-radius:6px;padding:2px 7px;font-size:11.5px;margin-right:5px}
+.tag.b{background:var(--pri-l);color:var(--pri)}
+/* 练习 */
+.q-top{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--sub);margin-bottom:8px}
+.bar{height:6px;background:#eceff6;border-radius:4px;overflow:hidden;margin-bottom:14px}
+.bar>i{display:block;height:100%;background:var(--pri);transition:width .25s}
+.stem{text-align:center;padding:22px 10px}
+.stem .big{font-size:30px;font-weight:700;letter-spacing:.5px}
+.stem .ph{font-size:15px;color:var(--pri);margin-top:6px;font-family:"Times New Roman",serif}
+.stem .cn{font-size:19px;margin-top:8px}
+.opt{display:block;width:100%;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:12px;
+  padding:13px 14px;margin-bottom:10px;font-size:15px;line-height:1.4}
+.opt:active{background:#f6f8fd}
+.opt.ok{border-color:var(--ok);background:#e9fbf3}
+.opt.bad{border-color:var(--bad);background:#ffeeef}
+.opt.sel{border-color:var(--pri)}
+.opt.dis{opacity:.75}
+.fb{border-radius:12px;padding:12px;margin-top:6px;font-size:14px;line-height:1.5}
+.fb.ok{background:#e9fbf3;color:#0a7f5c}
+.fb.bad{background:#ffeeef;color:#c2373d}
+.big-inp{font-size:20px;text-align:center;letter-spacing:1px;padding:14px}
+.center{text-align:center}
+/* 底部导航 */
+nav{position:fixed;bottom:0;left:0;right:0;z-index:60;background:#fff;border-top:1px solid var(--line);
+  display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;padding:8px 0 7px;font-size:11px;color:#8b94a8;display:flex;flex-direction:column;align-items:center;gap:3px}
+nav button i{font-style:normal;font-size:20px;line-height:1}
+nav button.on{color:var(--pri)}
+.pill{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11.5px;background:#eef1f7;color:var(--sub)}
+.pill.ok{background:#e9fbf3;color:#0a7f5c}
+.pill.bad{background:#ffeeef;color:#c2373d}
+.pill.warn{background:#fff4e0;color:#b07800}
+.list-item{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);gap:10px}
+.list-item:last-child{border-bottom:none}
+.list-item .t{flex:1;min-width:0}
+.list-item .t b{font-weight:600;display:block;font-size:14.5px}
+.list-item .t span{font-size:12.5px;color:var(--sub)}
+.stat{display:flex;text-align:center}
+.stat>div{flex:1}
+.stat b{display:block;font-size:22px;font-weight:700}
+.stat span{font-size:12px;color:var(--sub)}
+.q-text{font-size:14.5px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.small{font-size:12.5px}
+.scroll-x{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.scroll-x>*{flex:0 0 auto}
+.empty{text-align:center;padding:34px 10px;color:var(--sub);font-size:13.5px;line-height:1.7}
+.flex-end{display:flex;justify-content:flex-end;gap:8px}
+.mt{margin-top:12px}
+.mb{margin-bottom:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="hdTitle">📚 每日单词 <span id="hdBadge" class="pill" style="background:rgba(255,255,255,.22);color:#fff"></span></h1>
+  <div class="sub" id="hdSub">专升本 · 四级 · Python 随身练</div>
+</header>
+
+<div id="bootMask" style="position:fixed;inset:0;z-index:200;background:#f4f6fb;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+  <div style="font-size:44px">📚</div>
+  <div style="font-size:15px;color:#1c2333;font-weight:600">每日单词</div>
+  <div id="bootTip" style="font-size:13px;color:#6b7488">正在启动…</div>
+</div>
+<main id="app"></main>
+
+<nav id="nav">
+  <button data-tab="home" class="on"><i>🏠</i>今日</button>
+  <button data-tab="practice"><i>🎯</i>练习</button>
+  <button data-tab="paper"><i>📝</i>真题</button>
+  <button data-tab="lib"><i>📖</i>词库</button>
+  <button data-tab="me"><i>⚙️</i>我的</button>
+</nav>
+
+<script src="loader.js"></script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
