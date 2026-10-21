@@ -84,6 +84,8 @@
     if (!window.DICT) window.DICT = {};
     say('正在启动…');
     return loadScript('questions.js').then(function () {
+      return loadScript('roots.js').catch(function () { });   // 词根表（小，失败也不影响主功能）
+    }).then(function () {
       return loadScript('app.js');
     }).then(function () {
       var m = document.getElementById('bootMask');

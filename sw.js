@@ -1,9 +1,7 @@
-/* Service Worker —— 带版本更新机制
-   每次发新版，只需把 version.json 里的 version 改一下，
-   用户打开时会自动检测到并清掉旧缓存。 */
-const CACHE = 'ew-v1-8-1';
+/* Service Worker —— 带版本更新机制 */
+const CACHE = 'ew-v2-3-1';
 const ASSETS = [
-  './', './index.html', './loader.js', './app.js',
+  './', './index.html', './loader.js', './app.js', './roots.js',
   './dict.js', './dict.z.js', './questions.js',
   './manifest.json', './icon-192.png', './icon-512.png'
 ];
@@ -27,13 +25,11 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (!u.startsWith(self.location.origin)) return;
 
-  // version.json 永远走网络，不缓存（否则检测不到更新）
   if (u.includes('version.json')) {
     e.respondWith(fetch(e.request, { cache: 'no-store' }));
     return;
   }
 
-  // 网页导航请求：优先网络，失败才用缓存（保证能拿到新版）
   if (e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request).then(res => {
@@ -45,7 +41,6 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // 静态资源：缓存优先，后台更新
   e.respondWith(
     caches.match(e.request).then(hit => {
       const net = fetch(e.request).then(res => {

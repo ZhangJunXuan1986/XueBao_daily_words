@@ -436,7 +436,14 @@
   }
   function bind() {
     Array.prototype.forEach.call(app.querySelectorAll('[data-act]'), function (el) {
-      el.addEventListener('click', function (e) { ACT[el.dataset.act] && ACT[el.dataset.act](el, e); });
+      el.addEventListener('click', function (e) {
+        // 嵌套的 [data-act]（如选项里的「全文」）优先响应，不触发外层按钮
+        var inner = e.target.closest ? e.target.closest('[data-act]') : null;
+        if (inner && inner !== el && ACT[inner.dataset.act]) {
+          e.stopPropagation(); ACT[inner.dataset.act](inner, e); return;
+        }
+        ACT[el.dataset.act] && ACT[el.dataset.act](el, e);
+      });
     });
     Array.prototype.forEach.call(app.querySelectorAll('[data-chg]'), function (el) {
       el.addEventListener('change', function (e) { ACT[el.dataset.chg] && ACT[el.dataset.chg](el, e); });
@@ -486,6 +493,8 @@
         '<button class="btn sm" data-act="goLogin">登录 / 注册</button></div></div>';
     }
 
+    h += nextStepCard();
+
     h += '<div class="card"><h3>➕ 加入今日单词</h3>' +
       '<textarea id="inWords" placeholder="一次可粘贴多个，用空格 / 逗号 / 换行分隔&#10;例：negotiate, strawberry, variable, function"></textarea>' +
       '<label class="f">标签（可多选，方便和课堂/考试对应）</label>' +
@@ -500,7 +509,8 @@
 
     h += '<div class="card"><h3>📋 今日词表 <span class="pill">' + ids.length + '</span></h3>';
     if (!ids.length) {
-      h += '<div class="empty">今天还没有单词。<br>把课堂或自学遇到的词粘进来吧。</div>';
+      h += '<div class="empty">今天还没有单词。<br>把课堂或自学遇到的词粘进来吧。</div>' +
+        '<div class="row mt center"><button class="btn sm" data-act="goHomeAdd2">填入示例词</button></div>';
     } else {
       h += ids.map(function (id) {
         var w = S.words[id]; if (!w) return '';
@@ -581,7 +591,40 @@
     } else {
       toast('已加入 ' + found.length + ' 个单词');
     }
+    setTimeout(function () { nearTip(uniq); }, 700);
   };
+
+  function nearTip(words) {
+    var pairs = [];
+    (words || []).forEach(function (w) {
+      var ns = nearWords(w, 3);
+      if (ns.length) pairs.push({ w: w, ns: ns });
+    });
+    if (!pairs.length) return;
+    var box = document.createElement('div');
+    box.id = 'nearBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:190;background:rgba(20,26,40,.45);' +
+      'display:flex;align-items:center;justify-content:center;padding:22px';
+    var h = '<div style="background:#fff;border-radius:14px;padding:18px;max-width:340px;' +
+      'width:100%;max-height:70vh;overflow:auto">' +
+      '<div style="font-weight:600;font-size:14.5px;margin-bottom:8px">⚠️ 有词长得很像</div>' +
+      '<div class="muted" style="font-size:12.5px;margin-bottom:12px;line-height:1.7">' +
+      '形近词最容易混，放一起看一眼反而记得更牢。</div>';
+    pairs.forEach(function (pr) {
+      h += '<div style="margin-bottom:12px"><div style="font-weight:600;font-size:14px">' +
+        esc(pr.w) + '</div>';
+      pr.ns.forEach(function (n) {
+        h += '<div class="muted" style="font-size:12.5px;padding:3px 0 3px 10px;' +
+          'border-left:2px solid #e8ecf4;margin-top:3px">vs <b>' + esc(n.w) + '</b>　' +
+          esc(shortCn(n.cn)) + '</div>';
+      });
+      h += '</div>';
+    });
+    h += '<button class="btn block gray mt" id="nearOk">知道了</button></div>';
+    box.innerHTML = h;
+    document.body.appendChild(box);
+    document.getElementById('nearOk').onclick = function () { box.remove(); };
+  }
   /* 输入时实时检查：存在的绿色，查不到的红色 */
   ACT.checkIn = function () {
     var box = $('#inCheck'); if (!box) return;
@@ -771,13 +814,20 @@
 
     if (!isSp) {
       h += (q.options || []).map(function (o, i) {
-        var cls = 'opt';
+        var cls = 'opt opt2';
         if (QZ.showFb) {
           if (o === q.answer) cls += ' ok';
           else if (QZ.pick === i) cls += ' bad';
           else cls += ' dis';
         } else if (QZ.pick === i) cls += ' sel';
-        return '<button class="' + cls + '" data-act="choose" data-i="' + i + '">' + 'ABCD'[i] + '. ' + esc(o) + '</button>';
+        // 答题中只显示第一义项（训练快速识别），答完自动展开完整
+        var show = QZ.showFb ? o : shortCn(o);
+        var more = (!QZ.showFb && hasMoreCn(o));
+        return '<button class="' + cls + '" data-act="choose" data-i="' + i + '">' +
+          '<span class="optk">' + 'ABCD'[i] + '.</span>' +
+          '<span class="optv">' + esc(show) + (more ? '<span class="optdot">⋯</span>' : '') + '</span>' +
+          (more ? '<span class="optmore" data-act="showFullCn" data-w="" data-cn="' + esc(o) + '">全文</span>' : '') +
+          '</button>';
       }).join('');
     } else {
       h += '<input class="big-inp" id="spIn" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="输入单词">' +
@@ -790,7 +840,22 @@
       h += '<div class="fb ' + (QZ.fbOk ? 'ok' : 'bad') + '">' +
         '<b>' + esc(q.word) + '</b> /' + esc(q.ph || '') + '/ ' + (q.inf ? '　答案形式：<b>' + esc(q.ans) + '</b>（' + esc(q.infLabel) + '）' : '') +
         '<br>' + esc(q.cn || '') +
-        '</div>' +
+        '</div>';
+      // 答错时给词根拆解（在做的过程中学技巧，而不是让用户去翻手册）
+      if (!QZ.fbOk && typeof findRoots === 'function') {
+        var roots = findRoots(q.word);
+        if (roots.length) {
+          h += '<div class="card" style="background:#f2f7ff;border-left:3px solid #3b6ef6">' +
+            '<div style="font-weight:600;font-size:13.5px;margin-bottom:6px">💡 拆词记忆</div>' +
+            roots.map(function (r) {
+              return '<div style="font-size:13px;line-height:1.9"><b>' + esc(r.k) + '</b> = ' +
+                esc(r.m) + ' <span class="muted">(' + esc(r.t) + ')</span></div>';
+            }).join('') +
+            '<div class="muted" style="font-size:12.5px;margin-top:6px;line-height:1.7">同根词：' +
+            esc(roots[0].ex.slice(0, 4).join('　')) + '</div></div>';
+        }
+      }
+      h +=
         '<div class="row mt"><button class="btn" data-act="next">' + (QZ.i + 1 >= QZ.list.length ? '看结果' : '下一题') + '</button>' +
         '<button class="btn gray" data-act="speakNow" data-w="' + esc(q.word) + '">🔊 读</button></div>';
     }
@@ -1891,8 +1956,236 @@
     loadLib(username);     // 再切到目标库
   }
 
+  /* ---------------- 首次引导：让用户做一遍，而不是看一遍 ---------------- */
+  var GUIDE = [
+    {
+      t: '第 1 步 · 加 3 个词',
+      d: '把今天遇到的单词粘进去，系统自动查中文和音标。',
+      act: 'goHomeAdd',
+      tip: '输入框里已经填好示例，直接点「加入词库」'
+    },
+    {
+      t: '第 2 步 · 做 1 道题',
+      d: '练习会强制你主动回忆，比反复看单词表有效得多。',
+      act: 'goPractice1',
+      tip: '选一个答案，答完看反馈'
+    },
+    {
+      t: '第 3 步 · 会用了',
+      d: '核心就三步：加词 → 练习 → 复习到期。其余功能用到时再看。',
+      act: 'guideDone',
+      tip: '首页顶部的卡片会告诉你下一步该干嘛'
+    }
+  ];
+
+  function showGuide(step) {
+    var g = GUIDE[step];
+    if (!g) return;
+    var box = document.createElement('div');
+    box.id = 'guideBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(20,26,40,.62);' +
+      'display:flex;align-items:center;justify-content:center;padding:22px';
+    box.innerHTML = '<div style="background:#fff;border-radius:16px;padding:20px;max-width:340px;width:100%">' +
+      '<div style="font-size:16px;font-weight:600;margin-bottom:8px">' + esc(g.t) + '</div>' +
+      '<div class="muted" style="font-size:13.5px;line-height:1.75;margin-bottom:12px">' + esc(g.d) + '</div>' +
+      '<div style="background:#f2f7ff;border-radius:9px;padding:10px;font-size:12.5px;color:#3b6ef6;margin-bottom:16px">' +
+      esc(g.tip) + '</div>' +
+      '<div class="row"><button class="btn" id="gGo" style="flex:1">开始</button>' +
+      '<button class="btn gray" id="gSkip">跳过引导</button></div>' +
+      '<div class="center muted mt" style="font-size:12px">' + (step + 1) + ' / ' + GUIDE.length + '</div>' +
+      '</div>';
+    document.body.appendChild(box);
+    document.getElementById('gSkip').onclick = function () {
+      S.guided = 1; save(); box.remove();
+    };
+    document.getElementById('gGo').onclick = function () { box.remove(); ACT[g.act](); };
+  }
+
+  ACT.goHomeAdd = function () {
+    go('home');
+    setTimeout(function () {
+      var ta = document.querySelector('#inWords');
+      if (ta && !ta.value) {
+        ta.value = 'negotiate, strawberry, variable';
+        ACT.checkIn();
+        ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      // 监听是否真的加了词
+      var n0 = allWords().length;
+      var iv = setInterval(function () {
+        if (allWords().length > n0) {
+          clearInterval(iv);
+          setTimeout(function () { showGuide(1); }, 400);
+        }
+      }, 600);
+      setTimeout(function () { clearInterval(iv); }, 120000);
+    }, 350);
+  };
+
+  ACT.goPractice1 = function () {
+    go('practice');
+    setTimeout(function () {
+      var iv = setInterval(function () {
+        var el = document.querySelector('[data-act=startPractice]') ||
+                 document.querySelector('[data-act=quickPractice]');
+        if (el) { clearInterval(iv); el.click(); }
+      }, 400);
+      setTimeout(function () { clearInterval(iv); }, 8000);
+      // 做完一题后进入第三步
+      var iv2 = setInterval(function () {
+        if (TAB === 'practice' && QZ && QZ.i > 0) {
+          clearInterval(iv2);
+          setTimeout(function () { showGuide(2); }, 600);
+        }
+      }, 700);
+      setTimeout(function () { clearInterval(iv2); }, 180000);
+    }, 300);
+  };
+
+  ACT.guideDone = function () { S.guided = 1; save(); toast('搞定！开始用吧'); };
+
+  /* ---------------- 首页「下一步」卡片 ---------------- */
+  function nextStepCard() {
+    var all = allWords();
+    var due = dueIds().filter(function (id) { return S.words[id]; });
+    var todayIds = S.daily[today()] || [];
+    var doneToday = (S.log && S.log[today()]) ? (S.log[today()].total || 0) : 0;
+
+    if (!all.length) {
+      return '<div class="card" style="border-left:4px solid #3b6ef6">' +
+        '<div style="font-weight:600;font-size:14.5px;margin-bottom:4px">👋 先加 5 个词试试</div>' +
+        '<div class="muted mb" style="font-size:12.5px">把今天课堂或自学遇到的词粘进来，' +
+        '系统自动查意思和音标。</div>' +
+        '<div class="row"><button class="btn sm" data-act="goHomeAdd2">加示例词</button>' +
+        '<button class="btn sm light" data-act="goOcrTip">用图片导入</button></div></div>';
+    }
+    if (due.length) {
+      return '<div class="card" style="border-left:4px solid #f0a500">' +
+        '<div style="font-weight:600;font-size:14.5px;margin-bottom:4px">⏰ ' + due.length + ' 个词该复习了</div>' +
+        '<div class="muted mb" style="font-size:12.5px">按遗忘曲线，今天不练就会忘。</div>' +
+        '<button class="btn block" data-act="quickPractice" data-scope="due">立即复习</button></div>';
+    }
+    if (!doneToday) {
+      return '<div class="card" style="border-left:4px solid #12b886">' +
+        '<div style="font-weight:600;font-size:14.5px;margin-bottom:4px">🎯 今天还没练习</div>' +
+        '<div class="muted mb" style="font-size:12.5px">主动回忆比反复看有效得多，做一轮？</div>' +
+        '<button class="btn block" data-act="quickPractice" data-scope="today">开始练习</button></div>';
+    }
+    return '<div class="card" style="border-left:4px solid #12b886">' +
+      '<div style="font-weight:600;font-size:14.5px;margin-bottom:4px">✅ 今日已练 ' + doneToday + ' 题</div>' +
+      '<div class="muted mb" style="font-size:12.5px">要不要再来一轮？</div>' +
+      '<button class="btn block light" data-act="quickPractice" data-scope="today">多练一轮</button></div>';
+  }
+
+  ACT.goHomeAdd2 = function () {
+    go('home');
+    setTimeout(function () {
+      var ta = document.querySelector('#inWords');
+      if (ta && !ta.value) { ta.value = 'negotiate, strawberry, variable'; ACT.checkIn(); }
+      ta && ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+  };
+  ACT.goOcrTip = function () { alert('把资料拍成照片，用微信「提取文字」复制后粘贴进来；\n或者用电脑端识别工具批量处理。'); };
+
+  /* ---------------- 中文释义显示 ---------------- */
+  /* 按「义项」智能截断：取第一个完整义项，而不是按字数硬切。
+     词典释义通常按使用频率排，第一个是最常用的义项。 */
+  function shortCn(cn) {
+    cn = (cn || '').trim();
+    if (!cn) return '';
+    // 先按分号切成义项
+    var parts = cn.split(/[；;]/).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!parts.length) return cn;
+    var first = parts[0];
+    // 如果第一个义项里含多个词性（如 "n. 主题；科目 adj. 服从的"），
+    // 继续按词性标记切
+    var posRe = /(?:^|\s)(n|v|vt|vi|adj|adv|prep|conj|pron|num|art|int|aux|pl|pt|pp)\./g;
+    var segs = [];
+    var last = 0, m;
+    while ((m = posRe.exec(first)) !== null) {
+      if (m.index > 0) { segs.push(first.slice(last, m.index).trim()); last = m.index; }
+    }
+    segs.push(first.slice(last).trim());
+    segs = segs.filter(Boolean);
+    var out = segs.length ? segs[0] : first;
+    // 还是太长就按逗号取前两段
+    if (out.length > 22) {
+      var cs = out.split(/[，,]/);
+      out = cs.slice(0, Math.max(2, Math.ceil(cs.length / 2))).join('，');
+    }
+    return out;
+  }
+  function hasMoreCn(cn) {
+    var c = (cn || '').trim();
+    return c.length > 0 && shortCn(c).length < c.length;
+  }
+
+  /* 完整释义弹窗 */
+  ACT.showFullCn = function (el) {
+    var w = el.dataset.w, cn = el.dataset.cn || '', ph = el.dataset.ph || '';
+    var roots = (typeof findRoots === 'function') ? findRoots(w) : [];
+    var box = document.createElement('div');
+    box.style.cssText = 'position:fixed;inset:0;z-index:210;background:rgba(20,26,40,.5);' +
+      'display:flex;align-items:flex-end;justify-content:center';
+    var segs = cn.split(/[；;]/).map(function (x) { return x.trim(); }).filter(Boolean);
+    box.innerHTML = '<div style="background:#fff;border-radius:16px 16px 0 0;padding:18px;' +
+      'max-width:520px;width:100%;max-height:78vh;overflow:auto">' +
+      '<div style="font-size:19px;font-weight:600;margin-bottom:4px">' + esc(w) + '</div>' +
+      (ph ? '<div class="muted" style="margin-bottom:12px">/' + esc(ph) + '/</div>' : '') +
+      '<div style="font-size:14.5px;line-height:1.95">' +
+      segs.map(function (x) {
+        return '<div style="padding:7px 0;border-bottom:1px solid #f0f2f7">' + esc(x) + '</div>';
+      }).join('') + '</div>' +
+      (roots.length ? '<div style="margin-top:14px;background:#f2f7ff;border-radius:10px;padding:12px">' +
+        '<div style="font-weight:600;font-size:13.5px;margin-bottom:6px">💡 拆词记忆</div>' +
+        roots.map(function (r) {
+          return '<div style="font-size:13px;line-height:1.8"><b>' + esc(r.k) + '</b> ' +
+            esc(r.m) + ' <span class="muted">(' + esc(r.t) + ')</span></div>';
+        }).join('') +
+        '<div class="muted" style="font-size:12.5px;margin-top:6px">' +
+        esc(roots[0].ex.slice(0, 4).join('　')) + '</div></div>' : '') +
+      '<div class="row mt"><button class="btn block gray" id="fcClose">关闭</button></div></div>';
+    document.body.appendChild(box);
+    box.onclick = function (e) { if (e.target === box) box.remove(); };
+    document.getElementById('fcClose').onclick = function () { box.remove(); };
+  };
+
+  /* ---------------- 形近词对比 ---------------- */
+  /* 找长得很像的词放一起记，反而记得更清楚——因为你会主动找差异 */
+  function nearWords(word, limit) {
+    var w = (word || '').toLowerCase();
+    if (!w || w.length < 4) return [];
+    limit = limit || 4;
+    var all = allWords();
+    var out = [];
+    all.forEach(function (o) {
+      var x = (o.w || '').toLowerCase();
+      if (x === w || Math.abs(x.length - w.length) > 3) return;
+      var d = edist(w, x);
+      var cap = x.length >= 8 ? 2 : 1;
+      if (d >= 1 && d <= cap) out.push({ w: o.w, cn: o.cn || '', d: d });
+    });
+    out.sort(function (a, b) { return a.d - b.d || a.w.localeCompare(b.w); });
+    return out.slice(0, limit);
+  }
+  function edist(a, b) {
+    var n = a.length, m = b.length;
+    if (Math.abs(n - m) > 3) return 99;
+    var prev = [], cur = [], i, j;
+    for (j = 0; j <= m; j++) prev[j] = j;
+    for (i = 1; i <= n; i++) {
+      cur[0] = i;
+      for (j = 1; j <= m; j++) {
+        var c = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + c);
+      }
+      var t = prev; prev = cur; cur = t;
+    }
+    return prev[m];
+  }
+
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '1-9-0', APP_BUILD = 2026011804;
+  var APP_VER = '2-3-1', APP_BUILD = 2026012102;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -2392,11 +2685,40 @@
   }
   go('home');
   initScroll();
+
+  /* 跨天检测：手机把页面挂后台几天后再打开，日期还停在打开那天。
+     这里在「页面重新可见」和「每分钟轮询」两个时机检查日期，
+     一旦跨天就重新渲染，避免今日进度和复习计划失真。 */
+  (function () {
+    if (typeof document === 'undefined' || !document.addEventListener) return;
+    var lastDay = today();
+    function checkDay() {
+      var d = today();
+      if (d !== lastDay) {
+        lastDay = d;
+        // 新的一天：重建今日容器，然后重渲染
+        if (!S.daily[d]) S.daily[d] = [];
+        save();
+        render();
+        toast('新的一天：' + d);
+      }
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) checkDay();
+    });
+    window.addEventListener('pageshow', checkDay);
+    window.addEventListener('focus', checkDay);
+    setInterval(checkDay, 60000);
+  })();
+  if (!S.guided && typeof window !== 'undefined' && window.addEventListener) {
+    setTimeout(function () { showGuide(0); }, 900);
+  }
   window.__APP__ = {
     S: S, go: go, lookup: lookup, genInflect: genInflect, parseExam: parseExam,
     near: near, makeQ: makeQ, beginQuiz: beginQuiz, addWord: addWord, render: render,
     quiz: function () { return QZ; }, act: ACT, speak: speak,
     allWords: allWords, delWord: delWord, today: today,
+    shortCn: shortCn, hasMoreCn: hasMoreCn, nearWords: nearWords, findRoots: (typeof findRoots === 'function' ? findRoots : null),
     paper: function () { return PAPER_STATE; }, beginPaper: beginPaper
   };
 })();
