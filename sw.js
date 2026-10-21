@@ -1,5 +1,5 @@
 /* Service Worker —— 带版本更新机制 */
-const CACHE = 'ew-v2-3-1';
+const CACHE = 'ew-v2-3-3';
 const ASSETS = [
   './', './index.html', './loader.js', './app.js', './roots.js',
   './dict.js', './dict.z.js', './questions.js',

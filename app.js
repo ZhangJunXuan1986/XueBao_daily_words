@@ -1806,26 +1806,6 @@
       '<button class="iconbtn" data-act="delWord" data-id="' + w.id + '">🗑</button></div></div>';
   }
 
-  ACT.libChar = function (el) {
-    LIBC = (LIBC === el.dataset.v) ? '' : el.dataset.v;
-    render();
-  };
-  ACT.clearMyQ = function () { MYQ = ''; render(); };
-  ACT.filterMine = function (v) {
-    MYQ = (v || '').trim().toLowerCase();
-    var out = $('#myOut');
-    if (!out) return;
-    if (!MYQ) { out.innerHTML = ''; return; }
-    var all = allWords();
-    var hit = all.filter(function (w) {
-      return (w.w || '').toLowerCase().indexOf(MYQ) >= 0 ||
-        (w.cn || '').toLowerCase().indexOf(MYQ) >= 0;
-    });
-    if (!hit.length) { out.innerHTML = '<div class="muted">没找到「' + esc(MYQ) + '」</div>'; return; }
-    out.innerHTML = '<div class="muted" style="font-size:12.5px;margin-bottom:6px">找到 ' + hit.length + ' 个</div>' +
-      hit.slice(0, 80).map(function (w) { return wordRow(w); }).join('') +
-      (hit.length > 80 ? '<div class="muted center mt">仅显示前 80 个，再输几个字母缩小范围</div>' : '');
-  };
   ACT.doSearch = function () {
     LIBQ = ($('#libQ').value || '').trim().toLowerCase();
     var out = $('#searchOut');
@@ -1981,6 +1961,8 @@
   function showGuide(step) {
     var g = GUIDE[step];
     if (!g) return;
+    // 一显示就标记已看过：否则用户没走完流程（比如中途关页面）下次还会弹
+    if (step === 0 && !S.guided) { S.guided = 1; save(); }
     var box = document.createElement('div');
     box.id = 'guideBox';
     box.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(20,26,40,.62);' +
@@ -2043,6 +2025,91 @@
   };
 
   ACT.guideDone = function () { S.guided = 1; save(); toast('搞定！开始用吧'); };
+
+  /* 随时可重看的「使用指南」：把首次引导变成一个可以主动打开的入口 */
+  ACT.replayGuide = function () { S.guided = 0; save(); showGuide(0); };
+
+  /* 使用指南页：交互式，不是纯文本。
+     每一条都带一个「直接去做」的按钮，看说明的同时就能操作。 */
+  ACT.showHelp = function () {
+    var all = allWords();
+    var due = dueIds().filter(function (id) { return S.words[id]; });
+    var doneToday = (S.log && S.log[today()]) ? (S.log[today()].total || 0) : 0;
+    var papers = (S.papers || []).filter(function (p) { return !p.builtin; });
+    var hasBackup = !!S.lastExport;
+
+    // 每条带「完成状态」：一眼看出哪步还没做
+    var steps = [
+      { t: '加词', d: '把今天遇到的词粘进输入框，自动查中文和音标。',
+        a: 'goHomeAdd2', b: '去加词', done: all.length > 0, tip: all.length + ' 词' },
+      { t: '练习', d: '主动回忆比反复看有效得多，每天练一轮。',
+        a: 'helpPractice', b: '去练习', done: doneToday > 0, tip: '今日 ' + doneToday + ' 题' },
+      { t: '复习', d: '到期的词按遗忘曲线提醒，别跳过。',
+        a: 'helpDue', b: '看复习', done: due.length === 0, tip: due.length + ' 个待复习' },
+      { t: '真题', d: 'PDF 可复制版直接导；扫描件先用微信「提取文字」转成文字再粘进来。',
+        a: 'helpPaper', b: '去真题', done: papers.length > 0, tip: papers.length + ' 套' },
+      { t: '词库', d: '按标签（大类）和首字母（小类）找词，可搜索、可删除。',
+        a: 'helpLib', b: '去词库', done: all.length >= 5, tip: '分类浏览' },
+      { t: '备份', d: '数据只存本机，换手机或清缓存会丢。定期导出。',
+        a: 'helpBackup', b: '去备份', done: hasBackup, tip: hasBackup ? '已备份过' : '未备份' }
+    ];
+
+    var box = document.createElement('div');
+    box.id = 'helpBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:220;background:rgba(20,26,40,.5);' +
+      'display:flex;align-items:flex-end;justify-content:center';
+    var doneN = steps.filter(function (x) { return x.done; }).length;
+    var h = '<div style="background:#fff;border-radius:16px 16px 0 0;padding:18px;' +
+      'max-width:520px;width:100%;max-height:82vh;overflow:auto">' +
+      '<div style="font-size:17px;font-weight:600;margin-bottom:2px">使用指南</div>' +
+      '<div class="muted mb" style="font-size:12.5px">已完成 ' + doneN + '/' + steps.length +
+      '　·　点按钮可直接跳过去操作</div>';
+    steps.forEach(function (s2, i) {
+      h += '<div style="padding:11px 0;border-bottom:1px solid #f0f2f7">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="background:' + (s2.done ? '#12b886' : '#3b6ef6') + ';color:#fff;border-radius:50%;' +
+        'width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;' +
+        'font-size:12px;flex:0 0 auto">' + (s2.done ? '\u2713' : (i + 1)) + '</span>' +
+        '<b style="font-size:14px">' + esc(s2.t) + '</b>' +
+        '<span class="muted" style="font-size:11.5px;margin-left:auto">' + esc(s2.tip) + '</span></div>' +
+        '<div class="muted" style="font-size:12.5px;margin:5px 0 8px 28px;line-height:1.7">' + esc(s2.d) + '</div>' +
+        '<div style="margin-left:28px"><button class="btn sm ' + (s2.done ? 'gray' : '') +
+        '" data-act="' + s2.a + '">' + esc(s2.b) + '</button></div></div>';
+    });
+    h += '<button class="btn block gray mt" id="helpClose">关闭</button></div>';
+    box.innerHTML = h;
+    document.body.appendChild(box);
+    box.onclick = function (e) { if (e.target === box) box.remove(); };
+    document.getElementById('helpClose').onclick = function () { box.remove(); };
+    Array.prototype.forEach.call(box.querySelectorAll('[data-act]'), function (b) {
+      if (b.id === 'helpClose') return;
+      b.addEventListener('click', function () { setTimeout(function () { box.remove(); }, 100); });
+    });
+  };
+
+  ACT.helpPractice = function () { go('practice'); };
+  ACT.helpDue = function () { go('home'); setTimeout(function () {
+    var el = document.querySelector('[data-act=quickPractice]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 300); };
+  ACT.helpPaper = function () { go('paper'); };
+  ACT.helpLib = function () { go('lib'); };
+  ACT.helpBackup = function () { go('me'); setTimeout(function () {
+    var gs = document.querySelectorAll('.grp');
+    for (var i = 0; i < gs.length; i++) {
+      if (gs[i].dataset.grp === '数据备份') {
+        grpState()['数据备份'] = true; save(); gs[i].classList.add('open');
+        gs[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        break;
+      }
+    }
+  }, 300); };
+
+
+  ACT.helpPractice = function () { var b = document.getElementById('helpBox'); if (b) b.remove(); go('practice'); };
+  ACT.helpDue = function () { var b = document.getElementById('helpBox'); if (b) b.remove(); go('practice'); };
+  ACT.helpPaper = function () { var b = document.getElementById('helpBox'); if (b) b.remove(); go('paper'); };
+  ACT.helpBackup = function () { var b = document.getElementById('helpBox'); if (b) b.remove(); go('me'); toast('往下找「数据 → 导出备份」'); };
 
   /* ---------------- 首页「下一步」卡片 ---------------- */
   function nextStepCard() {
@@ -2185,7 +2252,7 @@
   }
 
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '2-3-1', APP_BUILD = 2026012102;
+  var APP_VER = '2-3-3', APP_BUILD = 2026012202;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -2482,19 +2549,82 @@
   };
 
   /* ---------------- 我的 ---------------- */
+  /* 可折叠分组：默认只展开最重要的，避免一屏塞太多 */
+  /* 分组展开状态持久化到 S.grpOpen：记住用户习惯，刷新后保持 */
+  function grpState() {
+    if (!S.grpOpen) S.grpOpen = {};
+    return S.grpOpen;
+  }
+  function grp(icon, title, body, defOpen) {
+    var key = title;
+    var st = grpState();
+    if (st[key] === undefined) st[key] = !!defOpen;
+    var open = !!st[key];
+    return '<div class="grp' + (open ? ' open' : '') + '" data-grp="' + esc(key) + '">' +
+      '<h4 data-act="toggleGrp">' + icon + ' ' + esc(title) +
+      '<span class="ar">›</span></h4>' +
+      '<div class="gb">' + body + '</div></div>';
+  }
+  ACT.toggleGrp = function (el) {
+    var box = el.closest('.grp');
+    if (!box) return;
+    var k = box.dataset.grp;
+    var st = grpState();
+    st[k] = !st[k];
+    box.classList.toggle('open', st[k]);
+    save();   // 记住习惯，下次打开保持
+  };
+
   function viewMe() {
     var st = S.settings;
     var h = '';
-    h += '<div class="card"><h3>🔊 发音</h3>' +
-      '<div class="row"><button class="btn sm ' + (st.voice === 'real' ? '' : 'gray') + '" data-act="setVoice" data-v="real">真人优先</button>' +
-      '<button class="btn sm ' + (st.voice === 'tts' ? '' : 'gray') + '" data-act="setVoice" data-v="tts">系统语音</button></div>' +
-      '<div class="row mt"><button class="btn sm ' + (st.accent === 'us' ? '' : 'gray') + '" data-act="setAcc" data-v="us">美音</button>' +
-      '<button class="btn sm ' + (st.accent === 'uk' ? '' : 'gray') + '" data-act="setAcc" data-v="uk">英音</button>' +
-      '<button class="btn sm light" data-act="testVoice">试听 hello</button></div>' +
-      '<div class="muted mt">真人发音取自公开词典音频，首次播放需联网，之后浏览器会缓存；取不到时自动改用手机自带语音。</div></div>';
+    var isLogin = !!(S.user && S.user.username);
 
-    h += '<div class="card"><h3>⚙️ 学习设置</h3>' +
-      '<label class="f">每日目标（词）</label>' +
+    // 1. 使用指南：置顶，永不折叠
+    h += '<div class="card"><div style="display:flex;align-items:center;gap:10px">' +
+      '<div style="flex:1"><b>📖 使用指南</b>' +
+      '<div class="muted" style="font-size:12.5px">不知道下一步干嘛？每条都能直接跳过去操作。</div></div>' +
+      '<button class="btn sm" data-act="showHelp">打开</button></div>' +
+      '<div class="row mt"><button class="btn sm light" data-act="replayGuide">重看新手引导</button></div></div>';
+
+    // 2. 登录：未登录时默认展开（要引导登录），已登录则折叠
+    var loginBody = '';
+    if (!isLogin) {
+      loginBody += '<div class="muted mb" style="color:#3b6ef6"><b>登录后：</b>换手机、换设备登录就能接着背；' +
+        '不登录数据只存在这台手机，清理缓存就没了。</div>';
+    }
+    if (!S.settings.api) {
+      loginBody += '<div class="muted mb">填你电脑上跑起来的后端地址，就能把单词备份到 MySQL，换手机也不丢。</div>';
+    }
+    loginBody += '<label class="f">后端地址</label>' +
+      '<input type="text" id="setApi" placeholder="http://192.168.1.5:8000" value="' + esc(S.settings.api || '') + '">' +
+      '<div class="muted mt small">电脑和手机连同一个 WiFi，填电脑的内网 IP（cmd 里 ipconfig 查）。</div>' +
+      '<div class="row mt"><button class="btn sm light" data-act="saveApi">保存地址</button></div>';
+    if (S.token && S.user) {
+      loginBody += '<div class="mt"><div class="list-item"><div class="t"><b>已登录：' + esc(S.user.nickname || S.user.username) + '</b>' +
+        '<span>' + esc(S.user.username) + '</span></div>' +
+        '<button class="btn sm gray" data-act="doLogout">退出</button></div></div>' +
+        '<div id="cloudStats" class="mt"></div>' +
+        '<div class="row mt"><button class="btn" data-act="pushWords">⬆️ 备份到云端</button>' +
+        '<button class="btn gray" data-act="pullWords">⬇️ 从云端恢复</button></div>';
+    } else {
+      loginBody += '<label class="f">用户名（至少 3 位）</label>' +
+        '<input type="text" id="auUser" autocomplete="off" placeholder="例如：zhongshan01">' +
+        '<label class="f">密码（至少 6 位）</label>' +
+        '<input type="password" id="auPass" autocomplete="new-password" placeholder="至少 6 位">' +
+        '<div class="row mt"><button class="btn" data-act="doRegister">注册</button>' +
+        '<button class="btn gray" data-act="doLogin">登录</button></div>';
+    }
+    // 账户分组：用户没手动设置过时默认展开（登录后备份按钮要可见）
+    var gst = grpState();
+    if (gst['账户'] === undefined) gst['账户'] = true;
+    h += '<div class="grp' + (gst['账户'] ? ' open' : '') + '" data-grp="账户" style="' +
+      (isLogin ? 'border-color:#12b886' : 'border-color:#3b6ef6') + '">' +
+      '<h4 data-act="toggleGrp">' + (isLogin ? '👤 我的账户' : '🔑 登录 / 注册') +
+      '<span class="ar">›</span></h4><div class="gb">' + loginBody + '</div></div>';
+
+    // 3. 学习设置（折叠）
+    var setBody = '<label class="f">每日目标（词）</label>' +
       '<input type="number" id="setDaily" value="' + st.daily + '" min="5" max="200">' +
       '<label class="f">每轮题量（道）</label>' +
       '<div class="scroll-x">' + [5, 10, 20, 30, 50].map(function (n) {
@@ -2511,58 +2641,40 @@
           '" data-act="setRate" data-r="' + r + '">' + r + '×</button>';
       }).join('') + '</div>' +
       '<div class="muted mt small">精听建议 0.7× 或 0.85×，先把每个词听清；熟练后 1.25× 提速。</div>' +
-      '<div class="mt"><button class="btn block" data-act="saveSet">保存设置</button></div></div>';
+      '<div class="mt"><button class="btn block" data-act="saveSet">保存设置</button></div>';
+    h += grp('⚙️', '学习设置', setBody, false);
 
-    // 登录卡片：置顶 + 高亮
-    var isLogin = !!(S.user && S.user.username);
-    h += '<div class="card" style="' + (isLogin ? 'border:1.5px solid #12b886' : 'border:1.5px solid #3b6ef6;background:#f8faff') + '">' +
-      '<h3>' + (isLogin ? '👤 我的账户' : '🔑 登录 / 注册') + '</h3>';
-    if (!isLogin) {
-      h += '<div class="muted mb" style="color:#3b6ef6"><b>登录后：</b>每个人有独立的词库，换手机、换设备登录就能接着背；' +
-        '不登录数据只存在这台手机，清理缓存就没了。</div>';
-    }
-    if (!S.settings.api) {
-      h += '<div class="muted mb">填你电脑上跑起来的后端地址，就能把单词备份到 MySQL，换手机也不丢。</div>';
-    }
-    h += '<label class="f">后端地址</label>' +
-      '<input type="text" id="setApi" placeholder="http://192.168.1.5:8000" value="' + esc(S.settings.api || '') + '">' +
-      '<div class="muted mt small">电脑和手机连同一个 WiFi，填电脑的内网 IP（cmd 里 ipconfig 查）。</div>' +
-      '<div class="row mt"><button class="btn sm light" data-act="saveApi">保存地址</button></div>';
+    // 4. 发音（折叠）
+    var voiceBody = '<div class="row"><button class="btn sm ' + (st.voice === 'real' ? '' : 'gray') + '" data-act="setVoice" data-v="real">真人优先</button>' +
+      '<button class="btn sm ' + (st.voice === 'tts' ? '' : 'gray') + '" data-act="setVoice" data-v="tts">系统语音</button></div>' +
+      '<div class="row mt"><button class="btn sm ' + (st.accent === 'us' ? '' : 'gray') + '" data-act="setAcc" data-v="us">美音</button>' +
+      '<button class="btn sm ' + (st.accent === 'uk' ? '' : 'gray') + '" data-act="setAcc" data-v="uk">英音</button>' +
+      '<button class="btn sm light" data-act="testVoice">试听 hello</button></div>' +
+      '<div class="muted mt">真人发音取自公开词典音频，首次播放需联网，之后浏览器会缓存；取不到时自动改用手机自带语音。</div>';
+    h += grp('🔊', '发音', voiceBody, false);
 
-    if (S.token && S.user) {
-      h += '<div class="mt"><div class="list-item"><div class="t"><b>已登录：' + esc(S.user.nickname || S.user.username) + '</b>' +
-        '<span>' + esc(S.user.username) + '</span></div>' +
-        '<button class="btn sm gray" data-act="doLogout">退出</button></div></div>' +
-        '<div id="cloudStats" class="mt"></div>' +
-        '<div class="row mt"><button class="btn" data-act="pushWords">⬆️ 备份到云端</button>' +
-        '<button class="btn gray" data-act="pullWords">⬇️ 从云端恢复</button></div>';
-    } else {
-      h += '<label class="f">用户名（至少 3 位）</label>' +
-        '<input type="text" id="auUser" autocomplete="off" placeholder="例如：zhongshan01">' +
-        '<label class="f">密码（至少 6 位）</label>' +
-        '<input type="password" id="auPass" autocomplete="new-password" placeholder="至少 6 位">' +
-        '<div class="row mt"><button class="btn" data-act="doRegister">注册</button>' +
-        '<button class="btn gray" data-act="doLogin">登录</button></div>';
-    }
-    h += '</div>';
-
-    h += '<div class="card"><h3>🔄 版本</h3>' +
-      '<div class="list-item"><div class="t"><b>当前版本 ' + APP_VER + '</b>' +
-      '<span>有新版本会自动提示</span></div>' +
-      '<button class="btn sm light" data-act="checkUpd">检查更新</button></div></div>';
-
-    h += '<div class="card"><h3>💾 数据</h3>' +
-      '<div class="row"><button class="btn light" data-act="export">导出备份</button>' +
+    // 5. 数据（折叠）
+    var dataBody = '<div class="row"><button class="btn light" data-act="export">导出备份</button>' +
       '<button class="btn gray" data-act="import">导入备份</button></div>' +
       '<div class="row mt"><button class="btn gray" data-act="clearAll">清空所有数据</button></div>' +
-      '<div class="muted mt">数据只存在这台手机的浏览器里，不上传任何服务器。换手机前记得导出备份。</div></div>';
+      '<div class="muted mt">数据只存在这台手机的浏览器里，不上传任何服务器。换手机前记得导出备份。</div>';
+    h += grp('💾', '数据备份', dataBody, false);
 
-    h += '<div class="card"><h3>📌 使用说明</h3><div class="muted">' +
+    // 6. 版本（折叠）
+    var verBody = '<div class="list-item"><div class="t"><b>当前版本 ' + APP_VER + '</b>' +
+      '<span>有新版本会自动提示</span></div>' +
+      '<button class="btn sm light" data-act="checkUpd">检查更新</button></div>';
+    h += grp('🔄', '版本', verBody, false);
+
+    // 7. 使用说明（折叠）
+    var helpBody = '<div class="muted">' +
       '1. 每天把课堂/自学的词粘进「今日」，打上标签（如 Unit 3、专升本核心、Python）。<br>' +
       '2. 到期词会自动进入复习队列，按遗忘曲线安排。<br>' +
       '3. 真题自己导入，永久保存在手机里，可按题型练。<br>' +
       '4. 添加到主屏幕后可离线使用（首次联网加载词库后会被缓存）。<br>' +
-      '<br>数据来源：开源英汉词库 + CMU 发音词典（离线）／公开词典接口（联网补全）。</div></div>';
+      '<br>数据来源：开源英汉词库 + CMU 发音词典（离线）／公开词典接口（联网补全）。</div>';
+    h += grp('📌', '详细说明', helpBody, false);
+
     return h;
   }
   ACT.setVoice = function (el) { S.settings.voice = el.dataset.v; save(); render(); };
@@ -2718,7 +2830,8 @@
     near: near, makeQ: makeQ, beginQuiz: beginQuiz, addWord: addWord, render: render,
     quiz: function () { return QZ; }, act: ACT, speak: speak,
     allWords: allWords, delWord: delWord, today: today,
-    shortCn: shortCn, hasMoreCn: hasMoreCn, nearWords: nearWords, findRoots: (typeof findRoots === 'function' ? findRoots : null),
+    shortCn: shortCn, hasMoreCn: hasMoreCn, nearWords: nearWords,
+    get LIB_CHAR(){return LIB_CHAR;}, get LIB_TAG(){return LIB_TAG;}, findRoots: (typeof findRoots === 'function' ? findRoots : null),
     paper: function () { return PAPER_STATE; }, beginPaper: beginPaper
   };
 })();
