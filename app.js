@@ -350,16 +350,19 @@
     if (cn.length > 26) cn = cn.slice(0, 26) + '…';
     return cn || '（无释义）';
   }
-  function distracts(cn, n) {
-    var out = [], pool = allWords();
+  /* full=true 时返回完整释义：渲染时再截断，这样才有「全文」可展开。
+     注意：去重/比较始终用 shortCn，避免短义相同的词重复出现。 */
+  function distracts(cn, n, full) {
+    var out = [], seen = [], pool = allWords();
     var tries = 0;
     while (out.length < n && tries < 200) {
       tries++;
       var w = pool[Math.floor(Math.random() * pool.length)];
       if (!w || !w.cn) continue;
       var c = shortCn(w.cn);
-      if (c === cn || out.indexOf(c) >= 0) continue;
-      out.push(c);
+      if (c === cn || seen.indexOf(c) >= 0) continue;
+      seen.push(c);
+      out.push(full ? w.cn : c);
     }
     if (pool.length < n + 1) {
       var keys = Object.keys(DICT);
@@ -368,8 +371,9 @@
         var k = keys[Math.floor(Math.random() * keys.length)];
         var e = DICT[k]; if (!e || !e.c) continue;
         var c2 = shortCn(e.c);
-        if (c2 === cn || out.indexOf(c2) >= 0) continue;
-        out.push(c2);
+        if (c2 === cn || seen.indexOf(c2) >= 0) continue;
+        seen.push(c2);
+        out.push(full ? e.c : c2);
       }
     }
     return out;
@@ -391,9 +395,10 @@
     var q = { id: id, mode: mode, word: word, cn: cn, ph: ph, ans: infWord, inf: useInf, infLabel: infLabel };
     q.cnShow = shortCn(cn) + (useInf ? '（' + infLabel + '）' : '');
     if (mode === 'word2cn' || mode === 'ph2cn' || mode === 'au2cn') {
-      var ds = distracts(shortCn(cn), 3);
-      q.options = shuf(ds.concat([shortCn(cn)]));
-      q.answer = shortCn(cn);
+      // 存完整释义：渲染时才截断，这样长释义才有「全文」可点
+      var ds = distracts(shortCn(cn), 3, true);
+      q.options = shuf(ds.concat([cn]));
+      q.answer = cn;
     }
     return q;
   }
@@ -434,14 +439,27 @@
     bind();
     if (TAB === 'practice' && !QZ) updPool();
   }
+  /* 通用绑定：对任意容器内的 [data-act] 生效
+     bind() 只扫 app 主容器，而弹窗是 append 到 body 上的，扫不到 → 按钮点了没反应 */
+  function bindIn(root, before) {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-act]'), function (el) {
+      el.addEventListener('click', function (e) {
+        var hit = e.target.closest ? e.target.closest('[data-act]') : null;
+        if (hit !== el) return;
+        if (!ACT[el.dataset.act]) return;
+        if (before) before(el);
+        ACT[el.dataset.act](el, e);
+      });
+    });
+  }
   function bind() {
     Array.prototype.forEach.call(app.querySelectorAll('[data-act]'), function (el) {
       el.addEventListener('click', function (e) {
-        // 嵌套的 [data-act]（如选项里的「全文」）优先响应，不触发外层按钮
-        var inner = e.target.closest ? e.target.closest('[data-act]') : null;
-        if (inner && inner !== el && ACT[inner.dataset.act]) {
-          e.stopPropagation(); ACT[inner.dataset.act](inner, e); return;
-        }
+        /* 只由「最内层」的那个 data-act 响应，外层不再重复执行。
+           否则嵌套时会触发两次（如选项里的「全文」：内层 span 一次 + 外层 button 一次），
+           表现为弹窗弹出两个、叠在一起。 */
+        var hit = e.target.closest ? e.target.closest('[data-act]') : null;
+        if (hit !== el) return;
         ACT[el.dataset.act] && ACT[el.dataset.act](el, e);
       });
     });
@@ -1659,6 +1677,14 @@
   function initScroll() {
     if (typeof window === 'undefined' || !window.addEventListener) return;
     var t = null;
+    // 回到顶部按钮
+    var btn = document.createElement('button');
+    btn.className = 'totop'; btn.textContent = '↑'; btn.setAttribute('aria-label', '回到顶部');
+    btn.onclick = function () { window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    document.body.appendChild(btn);
+    window.addEventListener('scroll', function () {
+      btn.classList.toggle('show', window.scrollY > 600);
+    });
     window.addEventListener('scroll', function () {
       clearTimeout(t);
       t = setTimeout(function () {
@@ -1683,6 +1709,14 @@
       ts.forEach(function (t) { (byTag[t] = byTag[t] || []).push(w); });
     });
     var tagKeys = Object.keys(byTag).sort(function (a, b) { return byTag[b].length - byTag[a].length; });
+
+    /* ---- 搜索置顶：高频操作不能埋在长列表下面 ---- */
+    h += '<div class="card lib-top"><div class="row">' +
+      '<input type="text" id="myQ" placeholder="🔍 搜我的词库（单词或中文）" ' +
+      'value="' + esc(MYQ || '') + '" oninput="__APP__.act.filterMine(this.value)" ' +
+      'style="flex:1">' +
+      (MYQ ? '<button class="btn gray" style="flex:0 0 auto" data-act="clearMyQ">清除</button>' : '') +
+      '</div><div id="myOut" class="mt"></div></div>';
 
     // 大类导航（标签）
     h += '<div class="card"><h3>🏷 大类：标签</h3><div class="chips">' +
@@ -1741,20 +1775,17 @@
     h += '</div>';
 
     /* ---- 搜索 / 导入 / 查词 ---- */
-    h += '<div class="card"><h3>🔍 在我的词库里搜索</h3>' +
-      '<div class="row"><input type="text" id="myQ" placeholder="输单词或中文，实时筛选" ' +
-      'value="' + esc(MYQ || '') + '" oninput="__APP__.act.filterMine(this.value)">' +
-      (MYQ ? '<button class="btn gray" style="flex:0 0 auto" data-act="clearMyQ">清除</button>' : '') + '</div>' +
-      '<div id="myOut" class="mt"></div></div>';
-
-    h += '<div class="card"><h3>📥 导入词表（合并，不覆盖）</h3>' +
-      '<div class="muted mb">把电脑识别工具导出的 .txt/.csv 传进来，会<b>追加</b>到现有词库。</div>' +
-      '<button class="btn block light" data-act="importWordList">选择词表文件</button></div>';
-
-    h += '<div class="card"><h3>📗 查词典（本地 12,619 词）</h3>' +
+    /* 低频操作：折叠，不占首屏 */
+    h += '<div class="grp" data-grp="更多工具">' +
+      '<h4 data-act="toggleGrp">🛠 更多工具<span class="ar">›</span></h4><div class="gb">' +
+      '<div class="mb"><div style="font-size:13px;font-weight:600;margin-bottom:6px">📥 导入词表</div>' +
+      '<div class="muted mb" style="font-size:12px">把电脑识别工具导出的 .txt/.csv 传进来，会追加到现有词库。</div>' +
+      '<button class="btn block light sm" data-act="importWordList">选择词表文件</button></div>' +
+      '<div><div style="font-size:13px;font-weight:600;margin-bottom:6px">📗 查词典（本地 12,619 词）</div>' +
       '<div class="row"><input type="text" id="libQ" placeholder="查词库里有没有这个词" value="' + esc(LIBQ) + '">' +
-      '<button class="btn" style="flex:0 0 auto" data-act="doSearch">查询</button></div>' +
-      '<div id="searchOut" class="mt"></div></div>';
+      '<button class="btn sm" style="flex:0 0 auto" data-act="doSearch">查询</button></div>' +
+      '<div id="searchOut" class="mt"></div></div>' +
+      '</div></div>';
 
     return h;
   }
@@ -2081,10 +2112,8 @@
     document.body.appendChild(box);
     box.onclick = function (e) { if (e.target === box) box.remove(); };
     document.getElementById('helpClose').onclick = function () { box.remove(); };
-    Array.prototype.forEach.call(box.querySelectorAll('[data-act]'), function (b) {
-      if (b.id === 'helpClose') return;
-      b.addEventListener('click', function () { setTimeout(function () { box.remove(); }, 100); });
-    });
+    // 关键：弹窗在 body 上，bind() 扫不到，必须单独绑定
+    bindIn(box, function () { box.remove(); });
   };
 
   ACT.helpPractice = function () { go('practice'); };
@@ -2106,10 +2135,6 @@
   }, 300); };
 
 
-  ACT.helpPractice = function () { var b = document.getElementById('helpBox'); if (b) b.remove(); go('practice'); };
-  ACT.helpDue = function () { var b = document.getElementById('helpBox'); if (b) b.remove(); go('practice'); };
-  ACT.helpPaper = function () { var b = document.getElementById('helpBox'); if (b) b.remove(); go('paper'); };
-  ACT.helpBackup = function () { var b = document.getElementById('helpBox'); if (b) b.remove(); go('me'); toast('往下找「数据 → 导出备份」'); };
 
   /* ---------------- 首页「下一步」卡片 ---------------- */
   function nextStepCard() {
@@ -2252,7 +2277,7 @@
   }
 
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '2-3-3', APP_BUILD = 2026012202;
+  var APP_VER = '2-3-5', APP_BUILD = 2026012204;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -2830,7 +2855,7 @@
     near: near, makeQ: makeQ, beginQuiz: beginQuiz, addWord: addWord, render: render,
     quiz: function () { return QZ; }, act: ACT, speak: speak,
     allWords: allWords, delWord: delWord, today: today,
-    shortCn: shortCn, hasMoreCn: hasMoreCn, nearWords: nearWords,
+    shortCn: shortCn, hasMoreCn: hasMoreCn, get TAB(){return TAB;}, nearWords: nearWords,
     get LIB_CHAR(){return LIB_CHAR;}, get LIB_TAG(){return LIB_TAG;}, findRoots: (typeof findRoots === 'function' ? findRoots : null),
     paper: function () { return PAPER_STATE; }, beginPaper: beginPaper
   };
