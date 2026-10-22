@@ -859,12 +859,13 @@
         '<b>' + esc(q.word) + '</b> /' + esc(q.ph || '') + '/ ' + (q.inf ? '　答案形式：<b>' + esc(q.ans) + '</b>（' + esc(q.infLabel) + '）' : '') +
         '<br>' + esc(q.cn || '') +
         '</div>';
-      // 答错时给词根拆解（在做的过程中学技巧，而不是让用户去翻手册）
-      if (!QZ.fbOk && typeof findRoots === 'function') {
+      // 答错必给词根；答对时如果这个词的词根还没展示过，也顺带提一句
+      if (typeof findRoots === 'function') {
         var roots = findRoots(q.word);
         if (roots.length) {
           h += '<div class="card" style="background:#f2f7ff;border-left:3px solid #3b6ef6">' +
-            '<div style="font-weight:600;font-size:13.5px;margin-bottom:6px">💡 拆词记忆</div>' +
+            '<div style="font-weight:600;font-size:13.5px;margin-bottom:6px">' +
+            (QZ.fbOk ? '💡 顺便记一下词根' : '💡 拆词记忆') + '</div>' +
             roots.map(function (r) {
               return '<div style="font-size:13px;line-height:1.9"><b>' + esc(r.k) + '</b> = ' +
                 esc(r.m) + ' <span class="muted">(' + esc(r.t) + ')</span></div>';
@@ -1710,13 +1711,24 @@
     });
     var tagKeys = Object.keys(byTag).sort(function (a, b) { return byTag[b].length - byTag[a].length; });
 
-    /* ---- 搜索置顶：高频操作不能埋在长列表下面 ---- */
-    h += '<div class="card lib-top"><div class="row">' +
+    /* ---- 搜索置顶 + 工具按钮：高频操作不能埋在长列表下面 ---- */
+    h += '<div class="card lib-top">' +
+      '<div class="row">' +
       '<input type="text" id="myQ" placeholder="🔍 搜我的词库（单词或中文）" ' +
       'value="' + esc(MYQ || '') + '" oninput="__APP__.act.filterMine(this.value)" ' +
       'style="flex:1">' +
-      (MYQ ? '<button class="btn gray" style="flex:0 0 auto" data-act="clearMyQ">清除</button>' : '') +
-      '</div><div id="myOut" class="mt"></div></div>';
+      (MYQ ? '<button class="btn gray sm" style="flex:0 0 auto" data-act="clearMyQ">清除</button>' : '') +
+      '</div>' +
+      '<div class="row mt" style="gap:6px">' +
+      '<button class="btn sm light" data-act="importWordList">📥 导入词表</button>' +
+      '<button class="btn sm light" data-act="toggleDict">📗 查词典</button>' +
+      '<button class="btn sm light" data-act="showStudyTips">💡 学习方法</button>' +
+      '</div>' +
+      '<div id="dictPane" class="mt" style="display:none">' +
+      '<div class="row"><input type="text" id="libQ" placeholder="查词库里有没有这个词" value="' + esc(LIBQ) + '">' +
+      '<button class="btn sm" style="flex:0 0 auto" data-act="doSearch">查询</button></div>' +
+      '<div id="searchOut" class="mt"></div></div>' +
+      '<div id="myOut" class="mt"></div></div>';
 
     // 大类导航（标签）
     h += '<div class="card"><h3>🏷 大类：标签</h3><div class="chips">' +
@@ -1775,17 +1787,7 @@
     h += '</div>';
 
     /* ---- 搜索 / 导入 / 查词 ---- */
-    /* 低频操作：折叠，不占首屏 */
-    h += '<div class="grp" data-grp="更多工具">' +
-      '<h4 data-act="toggleGrp">🛠 更多工具<span class="ar">›</span></h4><div class="gb">' +
-      '<div class="mb"><div style="font-size:13px;font-weight:600;margin-bottom:6px">📥 导入词表</div>' +
-      '<div class="muted mb" style="font-size:12px">把电脑识别工具导出的 .txt/.csv 传进来，会追加到现有词库。</div>' +
-      '<button class="btn block light sm" data-act="importWordList">选择词表文件</button></div>' +
-      '<div><div style="font-size:13px;font-weight:600;margin-bottom:6px">📗 查词典（本地 12,619 词）</div>' +
-      '<div class="row"><input type="text" id="libQ" placeholder="查词库里有没有这个词" value="' + esc(LIBQ) + '">' +
-      '<button class="btn sm" style="flex:0 0 auto" data-act="doSearch">查询</button></div>' +
-      '<div id="searchOut" class="mt"></div></div>' +
-      '</div></div>';
+
 
     return h;
   }
@@ -1823,19 +1825,203 @@
       (hit.length > 80 ? '<div class="muted center mt">仅显示前 80 个，再输几个字母缩小范围</div>' : '');
   };
 
-  /* 单词行：带发音、编辑、删除 */
+  /* 单词行：带发音、编辑、删除 + 词根徽章、助记按钮 */
   function wordRow(w) {
     var lv = (w.box || 0) >= 5 ? '<span class="pill ok">已掌握</span>'
       : ((w.bad || 0) > (w.ok || 0) ? '<span class="pill bad">易错</span>'
         : '<span class="pill">Lv.' + (w.box || 0) + '</span>');
-    return '<div class="w"><div class="wb"><div class="ww">' + esc(w.w) + ' ' + lv + '</div>' +
+    // 词根徽章：扫一眼就知道这个词能不能拆，能拆的点开看
+    var roots = (typeof findRoots === 'function') ? findRoots(w.w) : [];
+    var rb = '';
+    if (roots.length) {
+      rb = '<span class="rootbadge" data-act="showRoot" data-w="' + esc(w.w) + '">💡 ' +
+        esc(roots[0].k) + '</span>';
+    }
+    return '<div class="w"><div class="wb" data-act="showWordCard" data-w="' + esc(w.w) + '">' +
+      '<div class="ww">' + esc(w.w) + ' ' + lv + ' ' + rb + '</div>' +
       (w.ph ? '<div class="wp">/' + esc(w.ph) + '/</div>' : '') +
       '<div class="wc">' + (w.cn ? esc(w.cn) : '<span class="pill bad">待补全</span>') + '</div>' +
       '<div>' + w.tags.map(function (t) { return '<span class="tag b">' + esc(t) + '</span>'; }).join('') + '</div></div>' +
       '<div class="act"><button class="iconbtn" data-act="speak" data-w="' + esc(w.w) + '">🔊</button>' +
+      '<button class="iconbtn" data-act="studyWord" data-id="' + w.id + '">💡</button>' +
       '<button class="iconbtn" data-act="editWord" data-id="' + w.id + '">✏️</button>' +
       '<button class="iconbtn" data-act="delWord" data-id="' + w.id + '">🗑</button></div></div>';
   }
+
+  /* 单词助记卡：词根拆解 + 形近词 + 联想建议，一次给全 */
+  ACT.studyWord = function (el) {
+    var id = el.dataset.id, w = S.words[id];
+    if (!w) return;
+    var roots = (typeof findRoots === 'function') ? findRoots(w.w) : [];
+    var near = (typeof nearWords === 'function') ? nearWords(w.w, 4) : [];
+    var box = document.createElement('div');
+    box.id = 'studyBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:225;background:rgba(20,26,40,.5);' +
+      'display:flex;align-items:flex-end;justify-content:center';
+    var h = '<div style="background:#fff;border-radius:16px 16px 0 0;padding:18px;' +
+      'max-width:520px;width:100%;max-height:84vh;overflow:auto">' +
+      '<div style="font-size:19px;font-weight:600">' + esc(w.w) + '</div>' +
+      (w.ph ? '<div class="muted mb">/' + esc(w.ph) + '/</div>' : '') +
+      '<div style="font-size:14px;line-height:1.8;margin-bottom:12px">' +
+      (w.cn ? esc(w.cn) : '<span class="pill bad">待补全</span>') + '</div>';
+
+    if (roots.length) {
+      h += '<div style="background:#f2f7ff;border-left:3px solid #3b6ef6;border-radius:8px;padding:12px;margin-bottom:10px">' +
+        '<div style="font-weight:600;font-size:13.5px;margin-bottom:8px">🔤 拆词记忆</div>';
+      roots.forEach(function (r) {
+        h += '<div style="font-size:13px;line-height:1.9"><b>' + esc(r.k) + '</b> = ' +
+          esc(r.m) + ' <span class="muted">(' + esc(r.t) + ')</span></div>';
+      });
+      if (roots[0].ex && roots[0].ex.length) {
+        h += '<div class="muted" style="font-size:12.5px;margin-top:8px;line-height:1.8">' +
+          '同根词：' + esc(roots[0].ex.slice(0, 5).join('　')) + '</div>';
+      }
+      h += '</div>';
+    } else {
+      h += '<div class="muted" style="background:#f7f9fd;border-radius:8px;padding:11px;' +
+        'margin-bottom:10px;font-size:12.5px;line-height:1.75">' +
+        '这个词不含常用词根，建议用「造句法」：把它放进一句跟自己有关的话里，' +
+        '有情节的记忆比孤立的词牢 3 倍。</div>';
+    }
+
+    if (near.length) {
+      h += '<div style="background:#fff8e6;border-left:3px solid #f0a500;border-radius:8px;' +
+        'padding:12px;margin-bottom:10px">' +
+        '<div style="font-weight:600;font-size:13.5px;margin-bottom:8px">⚠️ 别跟这些词搞混</div>';
+      near.forEach(function (n) {
+        h += '<div style="font-size:12.5px;line-height:1.9"><b>' + esc(n.w) + '</b>　' +
+          esc(shortCn(n.cn)) + '</div>';
+      });
+      h += '</div>';
+    }
+
+    h += '<div style="background:#f0f9f4;border-left:3px solid #12b886;border-radius:8px;padding:12px">' +
+      '<div style="font-weight:600;font-size:13.5px;margin-bottom:6px">✍️ 试试这个</div>' +
+      '<div class="muted" style="font-size:12.5px;line-height:1.85">' +
+      '用 <b>' + esc(w.w) + '</b> 造一个跟你有关的句子，比如：<br>' +
+      '「我今天' + esc(w.cn.split(/[；;，,]/)[0].replace(/^[a-z]+\.\s*/, '')) + '……」<br>' +
+      '<span style="font-size:12px">写下来比默念记得牢。</span></div></div>';
+
+    h += '<button class="btn block gray mt" id="studyClose">关闭</button></div>';
+    box.innerHTML = h;
+    document.body.appendChild(box);
+    box.onclick = function (e) { if (e.target === box) box.remove(); };
+    document.getElementById('studyClose').onclick = function () { box.remove(); };
+  };
+
+  /* 点词根徽章：直接看拆解 */
+  /* 单词学习卡：把「怎么记住这个词」整合到一个卡片里。
+     辅助学习不能只在答错时给一句提示，要能在看单词时完整调出来。 */
+  ACT.showWordCard = function (el) {
+    var w = (el && el.dataset.w) || '';
+    if (!w) return;
+    var obj = null;
+    allWords().forEach(function (x) { if (x.w === w) obj = x; });
+    var dict = lookup(w);
+    var cn = (obj && obj.cn) || (dict && dict.cn) || '';
+    var ph = (obj && obj.ph) || (dict && dict.ph) || '';
+    var ok = (obj && obj.ok) || 0, bad = (obj && obj.bad) || 0;
+    var rs = (typeof findRoots === 'function') ? findRoots(w) : [];
+    var near = (typeof nearWords === 'function') ? nearWords(w, 4) : [];
+
+    var box = document.createElement('div');
+    box.id = 'wcBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:240;background:rgba(20,26,40,.5);' +
+      'display:flex;align-items:flex-end;justify-content:center';
+    var h = '<div style="background:#fff;border-radius:16px 16px 0 0;padding:18px;' +
+      'max-width:520px;width:100%;max-height:86vh;overflow:auto">';
+
+    // 头部
+    h += '<div style="display:flex;align-items:flex-start;gap:8px">' +
+      '<div style="flex:1"><div style="font-size:20px;font-weight:600">' + esc(w) + '</div>' +
+      (ph ? '<div class="muted">/' + esc(ph) + '/</div>' : '') + '</div>' +
+      '<button class="btn sm light" data-act="speak" data-w="' + esc(w) + '">🔊</button></div>';
+    if (cn) {
+      h += '<div style="font-size:14.5px;line-height:1.85;margin:10px 0;padding:10px 0;' +
+        'border-top:1px solid #f0f2f7;border-bottom:1px solid #f0f2f7">' +
+        cn.split(/[；;]/).map(function (x) { return esc(x.trim()); }).filter(Boolean)
+          .map(function (x) { return '<div>' + x + '</div>'; }).join('') + '</div>';
+    }
+    // 掌握情况
+    if (ok + bad > 0) {
+      var rate = Math.round(ok / (ok + bad) * 100);
+      h += '<div class="muted" style="font-size:12.5px;margin-bottom:10px">答对 ' + ok +
+        ' · 答错 ' + bad + ' · 正确率 ' + rate + '%' +
+        (bad > ok ? '　<span style="color:#e03131">这是个易错词</span>' : '') + '</div>';
+    }
+
+    // 拆词记忆
+    if (rs.length) {
+      h += '<div style="background:#f2f7ff;border-radius:10px;padding:12px;margin-bottom:12px">' +
+        '<div style="font-weight:600;font-size:13.5px;margin-bottom:7px">💡 拆词记忆</div>';
+      rs.forEach(function (r) {
+        h += '<div style="font-size:13px;line-height:1.9"><b>' + esc(r.k) + '</b> = ' +
+          esc(r.m) + ' <span class="muted">(' + esc(r.t) + ')</span></div>';
+      });
+      h += '<div class="muted" style="font-size:12.5px;margin-top:7px;line-height:1.75">同根词：' +
+        esc(rs[0].ex.slice(0, 4).join('　')) + '</div></div>';
+    }
+
+    // 形近词
+    if (near.length) {
+      h += '<div style="background:#fff8e6;border-radius:10px;padding:12px;margin-bottom:12px">' +
+        '<div style="font-weight:600;font-size:13.5px;margin-bottom:7px">⚠️ 别和这些搞混</div>' +
+        near.map(function (n) {
+          return '<div style="font-size:13px;line-height:1.9"><b>' + esc(n.w) + '</b>　' +
+            '<span class="muted">' + esc(shortCn(n.cn)) + '</span></div>';
+        }).join('') + '</div>';
+    }
+
+    // 针对性建议
+    var tip = '';
+    if (bad > 0 && rs.length) tip = '你错了 ' + bad + ' 次。试试拆词：' +
+      rs.map(function (r) { return r.k + '(' + r.m + ')'; }).join(' + ') + '，把几个部分拼起来想。';
+    else if (bad > 0 && near.length) tip = '你错了 ' + bad + ' 次，很可能是和 ' + near[0].w +
+      ' 搞混了——重点记它俩的区别。';
+    else if (bad > 0) tip = '你错了 ' + bad + ' 次。建议自己造个句子：把这个词放进一句跟你有关的话里。';
+    else if (rs.length) tip = '能拆词，先记词根，一串词一起记。';
+    else tip = '短词/无词根，靠例句记：放进一句话里比单背牢 3 倍。';
+    h += '<div style="background:#f1f9f4;border-radius:10px;padding:12px;margin-bottom:12px">' +
+      '<div style="font-weight:600;font-size:13.5px;margin-bottom:6px">🎯 怎么记住它</div>' +
+      '<div style="font-size:13px;line-height:1.8">' + esc(tip) + '</div></div>';
+
+    h += '<div class="row"><button class="btn sm" data-act="practiceOne" data-w="' + esc(w) + '">练这个词</button>' +
+      '<button class="btn sm gray" data-act="wcAddBad" data-w="' + esc(w) + '">加入错题本</button></div>' +
+      '<button class="btn block gray mt" id="wcClose">关闭</button></div>';
+    box.innerHTML = h;
+    document.body.appendChild(box);
+    box.onclick = function (e) { if (e.target === box) box.remove(); };
+    document.getElementById('wcClose').onclick = function () { box.remove(); };
+    bindIn(box, function () { });
+  };
+
+  ACT.wcAddBad = function (el) {
+    var w = el.dataset.w;
+    allWords().forEach(function (x) {
+      if (x.w === w) {
+        if ((x.tags || []).indexOf('错题本') < 0) { x.tags = (x.tags || []).concat(['错题本']); }
+      }
+    });
+    save(); toast('已加入错题本');
+    var b = document.getElementById('wcBox'); if (b) b.remove();
+    render();
+  };
+
+  ACT.practiceOne = function (el) {
+    var w = el.dataset.w;
+    var b = document.getElementById('wcBox'); if (b) b.remove();
+    var id = null;
+    allWords().forEach(function (x) { if (x.w === w) id = x.id; });
+    if (!id) { toast('这个词还没在词库里'); return; }
+    go('practice');
+    setTimeout(function () {
+      var sc = document.querySelector('[data-act=pickScope][data-v=all]');
+      if (sc) sc.click();
+    }, 300);
+  };
+
+  ACT.showRoot = function (el) { ACT.showWordCard(el); };
+
 
   ACT.doSearch = function () {
     LIBQ = ($('#libQ').value || '').trim().toLowerCase();
@@ -2122,6 +2308,75 @@
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, 300); };
   ACT.helpPaper = function () { go('paper'); };
+  /* 词典面板：点「查词典」就地展开，不用滚到底 */
+  ACT.toggleDict = function () {
+    var pane = document.getElementById('dictPane');
+    if (!pane) return;
+    var show = pane.style.display === 'none';
+    pane.style.display = show ? 'block' : 'none';
+    if (show) {
+      var inp = document.getElementById('libQ');
+      if (inp) { inp.focus(); inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    }
+  };
+
+  /* ---------------- 学习方法：在词库页随时能查 ---------------- */
+  ACT.showStudyTips = function () {
+    var box = document.createElement('div');
+    box.id = 'tipsBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:230;background:rgba(20,26,40,.5);' +
+      'display:flex;align-items:flex-end;justify-content:center';
+    var box2 = '<div style="background:#fff;border-radius:16px 16px 0 0;padding:18px;' +
+      'max-width:520px;width:100%;max-height:84vh;overflow:auto">' +
+      '<div style="font-size:17px;font-weight:600;margin-bottom:2px">💡 英语学习方法</div>' +
+      '<div class="muted mb" style="font-size:12.5px">挑一两个用起来就够，别贪多。</div>';
+
+    // 背单词
+    box2 += '<div style="font-weight:600;font-size:14.5px;margin:14px 0 6px;color:#3b6ef6">🧠 背单词</div>';
+    [['词根词缀法', '一次学一串，收益最高。词库里点单词的「💡拆词」就能看。',
+      'spect看 → inspect检查 / respect尊重 / prospect前景 / suspect怀疑\n' +
+      'dict说 → predict预测 / contradict反驳 / verdict裁决'],
+     ['形近词对比', '长得很像的词放一起看，主动找差异反而记得牢。加词时会自动提醒。',
+      'complement 补充 vs compliment 赞美\nprincipal 校长 vs principle 原则'],
+     ['主动回忆', '盖住释义回想 1 遍，胜过看着背 10 遍。练习模式就是干这个的。',
+      '费力才记得牢——想不起来的时候才是真在学'],
+     ['分散复习', '每天 20 分钟 × 7 天，远胜集中 140 分钟 × 1 天。',
+      '睡前 + 起床后是记忆黄金期，睡眠会巩固记忆'],
+     ['场景造句', '把词放进一句跟自己有关的话里，有情节的记忆牢 3 倍。',
+      'negotiate → 「我和房东 negotiate 房租」']
+    ].forEach(function (t) {
+      box2 += '<div style="padding:10px 0;border-bottom:1px solid #f0f2f7">' +
+        '<b style="font-size:13.5px">' + esc(t[0]) + '</b>' +
+        '<div style="font-size:12.5px;line-height:1.7;margin:4px 0 6px;color:#48536b">' + esc(t[1]) + '</div>' +
+        '<div style="font-size:12px;line-height:1.85;background:#f7f9fd;border-radius:8px;' +
+        'padding:8px 10px;color:#6b7488;white-space:pre-wrap">' + esc(t[2]) + '</div></div>';
+    });
+
+    // 听力
+    box2 += '<div style="font-weight:600;font-size:14.5px;margin:16px 0 6px;color:#3b6ef6">🎧 听力</div>';
+    [['精听', '1 分钟材料听 5 遍：抓大意 → 逐句听写 → 对照原文 → 专攻没听出的 → 跟读。',
+      '没听出来往往不是不认识，是连读、弱读吞掉了'],
+     ['影子跟读', '音频不停，落后 0.5 秒跟着念，模仿语音语调。每天 10 分钟。',
+      '对听力和口语同时有效'],
+     ['预判法', '播放前先看选项猜问题：都是数字→问时间/价格；都是地点→问 where。',
+      '带着问题听，命中率高一倍'],
+     ['倍速', '精听用 0.7× 或 0.85× 听清每个词，熟练后 1.25× 提速。',
+      '「我的 → 学习设置 → 听力播放倍速」可调']
+    ].forEach(function (t) {
+      box2 += '<div style="padding:10px 0;border-bottom:1px solid #f0f2f7">' +
+        '<b style="font-size:13.5px">' + esc(t[0]) + '</b>' +
+        '<div style="font-size:12.5px;line-height:1.7;margin:4px 0 6px;color:#48536b">' + esc(t[1]) + '</div>' +
+        '<div style="font-size:12px;line-height:1.85;background:#f7f9fd;border-radius:8px;' +
+        'padding:8px 10px;color:#6b7488;white-space:pre-wrap">' + esc(t[2]) + '</div></div>';
+    });
+
+    box2 += '<button class="btn block gray mt" id="tipsClose">关闭</button></div>';
+    box.innerHTML = box2;
+    document.body.appendChild(box);
+    box.onclick = function (e) { if (e.target === box) box.remove(); };
+    document.getElementById('tipsClose').onclick = function () { box.remove(); };
+  };
+
   ACT.helpLib = function () { go('lib'); };
   ACT.helpBackup = function () { go('me'); setTimeout(function () {
     var gs = document.querySelectorAll('.grp');
@@ -2277,7 +2532,7 @@
   }
 
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '2-3-5', APP_BUILD = 2026012204;
+  var APP_VER = '2-4-0', APP_BUILD = 2026012205;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -2855,7 +3110,7 @@
     near: near, makeQ: makeQ, beginQuiz: beginQuiz, addWord: addWord, render: render,
     quiz: function () { return QZ; }, act: ACT, speak: speak,
     allWords: allWords, delWord: delWord, today: today,
-    shortCn: shortCn, hasMoreCn: hasMoreCn, get TAB(){return TAB;}, nearWords: nearWords,
+    shortCn: shortCn, hasMoreCn: hasMoreCn, get TAB(){return TAB;}, get QZ(){return QZ;}, nearWords: nearWords,
     get LIB_CHAR(){return LIB_CHAR;}, get LIB_TAG(){return LIB_TAG;}, findRoots: (typeof findRoots === 'function' ? findRoots : null),
     paper: function () { return PAPER_STATE; }, beginPaper: beginPaper
   };
