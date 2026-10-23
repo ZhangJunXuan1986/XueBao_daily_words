@@ -27,7 +27,7 @@
   /* ---------------- 数据 ---------------- */
   var DEF = {
     words: {}, tags: ['专升本核心', '四级高频', 'Python', '课堂', '错题本'],
-    papers: [], audio: {}, settings: { api: '', voice: 'real', accent: 'us', daily: 20, round: 10, rate: 1, inflect: 25, loose: true, modes: ['word2cn', 'ph2cn', 'au2cn', 'cn2sp', 'au2sp', 'ph2sp'] },
+    papers: [], audio: {}, settings: { api: '', voice: 'real', accent: 'us', daily: 20, round: 10, rate: 1, inflect: 25, loose: true, modes: ['word2cn', 'au2cn', 'cn2sp', 'au2sp'] },
     daily: {}, log: {}, builtinLoaded: false, user: null, token: '',
     users: {},        // { 用户名: {words, daily, log} } 登录后各自的库
     guest: null,      // 未登录时的临时库快照（切回时用）
@@ -382,7 +382,7 @@
     var w = S.words[id]; if (!w) return null;
     var word = w.w, cn = w.cn || '', ph = w.ph || '';
     var useInf = false, infWord = word, infLabel = '';
-    if (mode === 'cn2sp' || mode === 'au2sp' || mode === 'ph2sp') {
+    if (mode === 'cn2sp' || mode === 'au2sp') {
       if (Math.random() * 100 < (S.settings.inflect || 0)) {
         var f = genInflect(word);
         var ks = INFLECT_ORDER.filter(function (k) { return f[k]; });
@@ -394,7 +394,7 @@
     }
     var q = { id: id, mode: mode, word: word, cn: cn, ph: ph, ans: infWord, inf: useInf, infLabel: infLabel };
     q.cnShow = shortCn(cn) + (useInf ? '（' + infLabel + '）' : '');
-    if (mode === 'word2cn' || mode === 'ph2cn' || mode === 'au2cn') {
+    if (mode === 'word2cn' || mode === 'au2cn') {
       // 存完整释义：渲染时才截断，这样长释义才有「全文」可点
       var ds = distracts(shortCn(cn), 3, true);
       q.options = shuf(ds.concat([cn]));
@@ -921,13 +921,13 @@
 
   /* ---------------- 练习 ---------------- */
   var QZ = null;
+  /* 音标题（看音标选义 / 看音标拼写）已删除：
+     音标是发音辅助，不是考点，练它不提分。 */
   var MODES = [
     { k: 'word2cn', n: '看词选义', d: '显示单词，选中文' },
-    { k: 'ph2cn', n: '看音标选义', d: '显示音标，选中文' },
     { k: 'au2cn', n: '听音选义', d: '听发音，选中文' },
     { k: 'cn2sp', n: '看义拼写', d: '看中文，写单词' },
-    { k: 'au2sp', n: '听音拼写', d: '听发音，写单词' },
-    { k: 'ph2sp', n: '看音标拼写', d: '看音标，写单词' }
+    { k: 'au2sp', n: '听音拼写', d: '听发音，写单词' }
   ];
 
   function viewPractice() {
@@ -1089,7 +1089,7 @@
 
     if (q.mode === 'word2cn') {
       h += '<div class="stem"><div class="big">' + esc(q.word) + '</div>' + (q.ph ? '<div class="ph">/' + esc(q.ph) + '/</div>' : '') + '</div>';
-    } else if (q.mode === 'ph2cn') {
+    } else if (q.mode === 'au2cn') {
       h += '<div class="stem"><div class="ph" style="font-size:24px">/' + esc(q.ph || '—') + '/</div>' +
         '<div class="muted mt">这是哪个词的意思？</div></div>';
     } else if (q.mode === 'au2cn') {
@@ -1101,7 +1101,7 @@
     } else if (q.mode === 'au2sp') {
       h += '<div class="stem"><button class="btn" data-act="replay">🔊 播放单词</button>' +
         '<div class="muted mt">/' + esc(q.ph || '') + '/　听音写词</div></div>';
-    } else if (q.mode === 'ph2sp') {
+    } else if (q.mode === 'au2sp') {
       h += '<div class="stem"><div class="ph" style="font-size:24px">/' + esc(q.ph || '—') + '/</div>' +
         '<div class="muted mt">看音标写单词' + (q.inf ? '（' + esc(q.infLabel) + '）' : '') + '</div></div>';
     }
@@ -1287,16 +1287,16 @@
       '<div class="muted" style="font-size:12.5px;line-height:1.9">' +
       '<b>题目</b>　下面选一种方式导入 → 存进「📝真题」列表<br>' +
       '<b>音频</b>　导入后点进这套卷 → 上传音频（存手机本地，离线可听）<br>' +
-      '<b>答案</b>　整卷包(.json)自带；PDF/Word 解析出来的<b>没有答案</b>，需另配' +
+      '<b>答案</b>　PDF/Word 解析出来的<b>没有答案</b>，需另配；拿到答案后可手动填入' +
       '</div></div>' +
       '<div class="muted mb">选一种方式把题目弄进来。解析都在<b>你手机上完成</b>，不上传任何服务器。</div>' +
       '<div class="chips mb">' +
-      '<button class="chip' + (IMP_TYPE === 'json' ? ' on' : '') + '" data-act="impType" data-v="json">📦 整卷包(.json)</button>' +
       '<button class="chip' + (IMP_TYPE === 'pdf' ? ' on' : '') + '" data-act="impType" data-v="pdf">📄 PDF 真题</button>' +
       '<button class="chip' + (IMP_TYPE === 'docx' ? ' on' : '') + '" data-act="impType" data-v="docx">📝 Word 真题</button>' +
       '<button class="chip' + (IMP_TYPE === 'txt' ? ' on' : '') + '" data-act="impType" data-v="txt">✍️ 粘贴文字</button>' +
-      '<button class="chip' + (IMP_TYPE === 'img' ? ' on' : '') + '" data-act="impType" data-v="img">🖼️ 图片/扫描件</button>' +
-      '</div>' + impPanel() + '</div>';
+      '</div>' + impPanel() + '</div>' +
+      '<div class="muted small">扫描件（图片型 PDF、拍照）没有文字层，解析不出来——' +
+      '先用微信「提取文字」转成文字，再选「✍️ 粘贴文字」。</div>';
 
     h += '<div class="card"><h3>⬆️ 粘贴真题文本</h3>' +
       '<div class="muted mb">把真题文字（PDF/图片用微信「提取文字」后复制）粘贴进来，程序会按题型自动切分，切完可手工校正。</div>' +
@@ -1336,10 +1336,6 @@
 
   function impPanel() {
     var t = IMP_TYPE;
-    if (t === 'json') {
-      return '<div class="muted mb small">我整理好的整卷包，<b>含题目、答案、解析</b>，最完整。</div>' +
-        '<button class="btn block light" data-act="importPaperFile">选择 .json 文件</button>';
-    }
     if (t === 'pdf' || t === 'docx') {
       return '<div class="muted mb small">' +
         (t === 'pdf' ? '直接在手机上解析 PDF 文字层，自动拆题号和选项。<b>首次会下载约 1.4 MB 解析库</b>（之后就缓存了）。'
@@ -1348,34 +1344,16 @@
         '<button class="btn block light" data-act="importDocFile" data-kind="' + t + '">选择 .' + t + ' 文件</button>' +
         '<div id="impRes" class="mt"></div>';
     }
-    if (t === 'img') {
-      return '<div class="card" style="background:#fff8e6;border-left:3px solid #f0a500">' +
-        '<div style="font-size:13.5px;line-height:1.8">' +
-        '<b>先说清楚：图片不能直接变题目。</b><br>' +
-        '扫描版 PDF、拍照、截图里面是<b>像素不是文字</b>，App 读不出内容，' +
-        '必须先「认字」（OCR）转成文字，再粘进来。<br><br>' +
-        '<b>最快：微信「提取文字」</b><br>' +
-        '长按图片 → 提取文字 → 全选复制 → 回到本页选「✍️ 粘贴文字」粘进去。<br>' +
-        '手机自带，不用装东西，识别率也不错。<br><br>' +
-        '<b>批量：电脑端识别工具</b><br>' +
-        '一次拖 8 张进去，自动去荧光笔、自动拼成完整文本，再复制过来。<br>' +
-        '适合整套卷子、或者带荧光笔的资料。' +
-        '</div></div>' +
-        '<div class="row mt"><button class="btn light" data-act="impType" data-v="txt">去粘贴文字 →</button></div>';
+    if (t === 'txt') {
+      return '<div class="muted mb small">' +
+        '把真题文字粘进来，按题型自动切分。<br>' +
+        '<b>扫描件/图片怎么办：</b>微信长按图片 → 提取文字 → 复制 → 粘到这里。' +
+        '</div>' +
+        '<div class="muted small" style="margin-top:6px">↓ 用下面「⬆️ 粘贴真题文本」那一栏。</div>';
     }
-    // txt：粘贴
-    return '<div class="muted mb small">从 WPS / PDF 里复制文字粘进来，自动按题号拆分。适合只要几道题的情况。</div>' +
-      '<textarea id="impTxt" rows="6" placeholder="把题目文字粘进来，例如：&#10;46. What do we learn...?&#10;A) ...  B) ...  C) ...  D) ..."></textarea>' +
-      '<label class="f mt">试卷名称</label>' +
-      '<input type="text" id="impName" placeholder="例如：2025年6月四级第1套">' +
-      '<div class="row mt"><button class="btn" data-act="importPasteText">解析并导入</button>' +
-      '<button class="btn gray sm" data-act="fillSample">填入示例（先试一道）</button></div>' +
-      '<div class="muted mt small">不确定格式对不对？先点「填入示例」试一道，能出来就是对的。</div>';
+    return '';
   }
 
-  ACT.impType = function (el) { IMP_TYPE = el.dataset.v; render(); };
-
-  /* 通用：把文本解析成试卷并存进去 */
   function addPaperFromText(txt, name) {
     var items = parseExam(txt);
     if (!items || !items.length) return 0;
@@ -1409,6 +1387,15 @@
     if (!n) { alert('没能识别出题目。请检查格式：题号要用「1.」或「46.」这种形式。'); return; }
     toast('已导入 ' + n + ' 道题');
     render();
+  };
+
+  ACT.impType = function (el) {
+    IMP_TYPE = el.dataset.v || 'pdf';
+    render();
+    setTimeout(function () {
+      var el2 = document.getElementById('pName');
+      if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
   };
 
   ACT.importDocFile = function (btn) {
@@ -1969,7 +1956,7 @@
 
   /* ---------------- 词库 ---------------- */
   var LIBQ = '', MYQ = '', LIBC = '', LIB_TAG = '', LIB_CHAR = '';
-  var IMP_TYPE = 'json';
+  var IMP_TYPE = 'pdf';
   /* 分页：看到哪加载到哪，接近底部就预加载下一批 */
   var LIB_PAGE = 1, PAGE_SIZE = 50;
   function resetPage() { LIB_PAGE = 1; }
@@ -2925,7 +2912,7 @@
   };
 
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '2-7-0', APP_BUILD = 2026012304;
+  var APP_VER = '2-7-0', APP_BUILD = 2026012305;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -3562,7 +3549,7 @@
     near: near, makeQ: makeQ, beginQuiz: beginQuiz, addWord: addWord, render: render,
     quiz: function () { return QZ; }, act: ACT, speak: speak,
     allWords: allWords, delWord: delWord, today: today,
-    shortCn: shortCn, hasMoreCn: hasMoreCn, get TAB(){return TAB;}, get QZ(){return QZ;}, phraseHint: phraseHint, phrasePool: phrasePool, toast: toast, nearWords: nearWords,
+    shortCn: shortCn, hasMoreCn: hasMoreCn, get TAB(){return TAB;}, get QZ(){return QZ;}, get PAPER_STATE(){return PAPER_STATE;}, phraseHint: phraseHint, phrasePool: phrasePool, toast: toast, nearWords: nearWords,
     get LIB_CHAR(){return LIB_CHAR;}, get LIB_TAG(){return LIB_TAG;}, findRoots: (typeof findRoots === 'function' ? findRoots : null),
     paper: function () { return PAPER_STATE; }, beginPaper: beginPaper
   };
