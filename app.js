@@ -429,6 +429,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) {
       b.classList.toggle('on', b.dataset.tab === tab);
     });
+    if (typeof paintNavIcons === 'function') paintNavIcons();
     $('#hdTitle').firstChild.nodeValue = ({ home: '📚 ', practice: '🎯 ', paper: '📝 ', lib: '📖 ', me: '⚙️ ' })[tab] + TITLES[tab] + ' ';
     window.scrollTo(0, 0);
     render();
@@ -437,6 +438,7 @@
     var f = { home: viewHome, practice: viewPractice, paper: viewPaper, lib: viewLib, me: viewMe }[TAB];
     app.innerHTML = '<div>' + (f ? f() : '') + '</div>';
     bind();
+    if (typeof deEmojiTitles === 'function') deEmojiTitles();
     if (TAB === 'practice' && !QZ) updPool();
   }
   /* 通用绑定：对任意容器内的 [data-act] 生效
@@ -512,15 +514,31 @@
     }
 
     h += nextStepCard();
+    // 插件槽：只有开启的插件才会往这里插内容
+    if (typeof PLUGIN_SLOTS !== 'undefined') h += AppPlugin.slot('homeTop');
 
+    /* 单词 / 词组 两种模式：
+       词组必须整串录入（不能按空格切），否则 "as we all know" 会被切成 4 个词 */
     h += '<div class="card"><h3>➕ 加入今日单词</h3>' +
-      '<textarea id="inWords" placeholder="一次可粘贴多个，用空格 / 逗号 / 换行分隔&#10;例：negotiate, strawberry, variable, function"></textarea>' +
+      '<div class="row mb" style="gap:6px">' +
+      '<button class="btn sm ' + (IN_MODE === 'w' ? '' : 'gray') + '" data-act="inMode" data-v="w">🔤 单词</button>' +
+      '<button class="btn sm ' + (IN_MODE === 'p' ? '' : 'gray') + '" data-act="inMode" data-v="p">💬 词组 / 句型</button>' +
+      '<button class="btn sm light" data-act="pickPhrase">📚 挑常用词组</button></div>' +
+      '<textarea id="inWords" placeholder="' +
+      (IN_MODE === 'p'
+        ? '每行一个词组，不要按空格切分&#10;例：&#10;as we all know&#10;take advantage of&#10;on the one hand'
+        : '一次可粘贴多个，用空格 / 逗号 / 换行分隔&#10;例：negotiate, strawberry, variable, function') +
+      '"></textarea>' +
+      (IN_MODE === 'p'
+        ? '<div class="muted mt small">💬 词组模式：<b>一行一个</b>。内置的 128 条常用词组会自动查到中文，' +
+          '查不到的会标「待补全」，可手动填。</div>'
+        : '') +
       '<label class="f">标签（可多选，方便和课堂/考试对应）</label>' +
       '<div class="chips" id="tagPick">' + S.tags.map(function (t) {
         return '<button class="chip' + (PICK.indexOf(t) >= 0 ? ' on' : '') + '" data-act="pickTag" data-t="' + esc(t) + '">' + esc(t) + '</button>';
       }).join('') + '<button class="chip add" data-act="newTag">+ 新标签</button></div>' +
-      '<div class="row mt"><button class="btn" data-act="addWords">加入词库</button>' +
-      '<button class="btn gray" data-act="clearIn">清空</button></div>' +
+      '<div class="row mt"><button class="btn hero" style="flex:2" data-act="addWords">加入词库</button>' +
+      '<button class="btn out" style="flex:1" data-act="clearIn">清空</button></div>' +
       '<div id="inCheck" class="mt"></div>' +
       '<div class="muted mt">系统会自动查中文意思与音标；<b style="color:#f0454c">红色</b>表示词库里查不到，' +
       '会标为「待补全」，可手动填写或联网补全。</div></div>';
@@ -557,6 +575,46 @@
   }
 
   var PICK = (S.tags && S.tags[0]) ? [S.tags[0]] : [];
+  var IN_MODE = 'w';   // w=单词  p=词组（词组不能按空格切）
+  var PZ_MODE = false; // 练习页是否处于「词组模式」（汉译英）
+
+  /* 词组练习：汉译英。
+     理由：写作时你想的是中文「众所周知」，卡在英文怎么写——这才是真实场景。
+     反过来考「as we all know 什么意思」没意义，你认得。 */
+  function phrasePool() {
+    var out = [];
+    allWords().forEach(function (x) {
+      if (x.phrase && x.cn) out.push(x);
+    });
+    return out;
+  }
+  function makePhraseQuiz(pool, n) {
+    var src = pool.slice();
+    var list = [];
+    for (var i = 0; i < n && src.length; i++) {
+      var k = Math.floor(Math.random() * src.length);
+      var x = src.splice(k, 1)[0];
+      list.push({
+        id: x.id, word: x.w, cn: x.cn, ans: x.w, mode: 'cn2ph',
+        options: null, inf: ''
+      });
+    }
+    return list;
+  }
+  /* 难度提示：三档 */
+  function phraseHint(w, lv) {
+    w = w || '';
+    if (lv === 2) return '';                      // 挑战：不给提示
+    var parts = w.split(' ');
+    if (lv === 1) {                                // 标准：只给每个词首字母
+      return parts.map(function (p) { return p[0] + '…'; }).join(' ');
+    }
+    // 引导：保留首尾字母，中间挖空
+    return parts.map(function (p) {
+      if (p.length <= 2) return p;
+      return p[0] + p.slice(1, -1).replace(/[a-z]/g, '_') + p.slice(-1);
+    }).join(' ');
+  }
   var ACT = {};
 
   ACT.pickTag = function (el) {
@@ -575,6 +633,82 @@
     if (t && PICK.indexOf(t) < 0) PICK.push(t);
     render();
   };
+  ACT.inMode = function (el) {
+    IN_MODE = el.dataset.v || 'w';
+    render();
+    setTimeout(function () {
+      var t = document.getElementById('inWords');
+      if (t) t.focus();
+    }, 100);
+  };
+
+  /* 常用词组挑选器：按分类挑，不用自己打字 */
+  ACT.pzMode = function (el) { PZ_MODE = el.dataset.v === '1'; render(); };
+  ACT.setPhLevel = function (el) { S.settings.phraseLevel = parseInt(el.dataset.v, 10) || 0; save(); render(); };
+  ACT.goHomePhrase = function () { go('home'); setTimeout(function () { __APP__.act.pickPhrase(); }, 400); };
+
+  ACT.startPhraseQuiz = function () {
+    var pool = phrasePool();
+    if (!pool.length) { alert('还没有词组'); return; }
+    var n = Math.min(S.settings.round || 10, pool.length);
+    QZ = { list: makePhraseQuiz(pool, n), i: 0, right: 0, wrong: 0, showFb: false, pick: -1, fbOk: false, ph: true };
+    render();
+  };
+
+  ACT.pickPhrase = function () {
+    var cats = (typeof phraseCats === 'function') ? phraseCats() : {};
+    var keys = Object.keys(cats);
+    if (!keys.length) { alert('词组库未加载'); return; }
+    var box = document.createElement('div');
+    box.id = 'phBox';
+    box.style.cssText = 'position:fixed;inset:0;z-index:235;background:rgba(20,26,40,.5);' +
+      'display:flex;align-items:flex-end;justify-content:center';
+    var h = '<div style="background:#fff;border-radius:16px 16px 0 0;padding:18px;' +
+      'max-width:520px;width:100%;max-height:84vh;overflow:auto">' +
+      '<div style="font-size:17px;font-weight:600;margin-bottom:2px">📚 常用词组</div>' +
+      '<div class="muted mb" style="font-size:12.5px">点一下就选上，选完点「加入」</div>';
+    keys.forEach(function (c) {
+      h += '<div style="font-weight:600;font-size:13.5px;margin:12px 0 6px;color:#3b6ef6">' +
+        esc(c) + '（' + cats[c].length + '）</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+        cats[c].map(function (p) {
+          return '<button class="chip phchip" data-ph="' + esc(p.w) + '">' +
+            esc(p.w) + '<span class="muted" style="margin-left:5px;font-size:11px">' +
+            esc(p.cn) + '</span></button>';
+        }).join('') + '</div>';
+    });
+    h += '<div class="row mt"><button class="btn" id="phAdd">加入所选</button>' +
+      '<button class="btn gray" id="phCancel">取消</button></div>' +
+      '<div class="muted mt small" id="phCount">已选 0 条</div></div>';
+    box.innerHTML = h;
+    mountLayer(box);
+
+    var sel = {};
+    Array.prototype.forEach.call(box.querySelectorAll('.phchip'), function (b) {
+      b.onclick = function () {
+        var k = b.dataset.ph;
+        if (sel[k]) { delete sel[k]; b.style.background = ''; b.style.color = ''; }
+        else { sel[k] = 1; b.style.background = '#3b6ef6'; b.style.color = '#fff'; }
+        document.getElementById('phCount').textContent = '已选 ' + Object.keys(sel).length + ' 条';
+      };
+    });
+    document.getElementById('phCancel').onclick = function () { box.remove(); };
+    document.getElementById('phAdd').onclick = function () {
+      var ks = Object.keys(sel);
+      if (!ks.length) { alert('还没选'); return; }
+      box.remove();
+      IN_MODE = 'p';
+      var ta = document.getElementById('inWords');
+      var cur = ta ? ta.value.trim() : '';
+      var now = cur ? cur.split(/\n+/).filter(Boolean) : [];
+      ks.forEach(function (k) { if (now.indexOf(k) < 0) now.push(k); });
+      setTimeout(function () {
+        var t = document.getElementById('inWords');
+        if (t) { t.value = now.join('\n'); __APP__.act.addWords(); }
+      }, 200);
+    };
+  };
+
   ACT.clearIn = function () { $('#inWords').value = ''; };
   ACT.speak = function (el) { speak(el.dataset.w); };
 
@@ -582,20 +716,40 @@
     var raw = ($('#inWords').value || '').trim();
     if (!PICK.length) { PICK = [S.tags[0]].filter(Boolean); }
     if (!raw) { alert('请先输入或粘贴单词'); return; }
-    var list = raw.split(/[\s,，;；\n\t、\/]+/).map(function (s) {
-      return s.trim().toLowerCase().replace(/^[^a-z]+|[^a-z\-']+$/g, '');
-    }).filter(function (s) { return s && /^[a-z]/.test(s); });
+    var list;
+    if (IN_MODE === 'p') {
+      /* 词组模式：一行一个，绝不按空格切。
+         否则 "as we all know" 会被切成 as / we / all / know 四个词。 */
+      list = raw.split(/[\n;；,，、]+/).map(function (s) {
+        return s.trim().toLowerCase().replace(/\s+/g, ' ')
+          .replace(/^[^a-z]+|[^a-z'\s]+$/g, '').trim();
+      }).filter(function (s) { return s && /^[a-z]/.test(s) && s.length > 1; });
+    } else {
+      list = raw.split(/[\s,，;；\n\t、\/]+/).map(function (s) {
+        return s.trim().toLowerCase().replace(/^[^a-z]+|[^a-z\-']+$/g, '');
+      }).filter(function (s) { return s && /^[a-z]/.test(s); });
+    }
     var seen = {}, uniq = [];
     list.forEach(function (w) { if (!seen[w]) { seen[w] = 1; uniq.push(w); } });
     if (!uniq.length) { alert('没有识别到英文单词'); return; }
     var found = [], miss = [];
     uniq.forEach(function (w) {
-      var r = lookup(w);
+      var r = null;
+      // 词组模式优先查词组库（含中文，无音标）
+      if (IN_MODE === 'p' && typeof lookupPhrase === 'function') {
+        var p = lookupPhrase(w);
+        if (p && p.found) {
+          addWord(w, p.cn, '', PICK.slice(), { phrase: 1 });
+          found.push(w);
+          return;
+        }
+      }
+      r = lookup(w);
       if (r && r.found) {
         addWord(w, r.cn, r.ph, PICK.slice(), r.base ? { base: r.base } : null);
         found.push(w);
       } else {
-        addWord(w, '', '', PICK.slice());
+        addWord(w, '', '', PICK.slice(), IN_MODE === 'p' ? { phrase: 1 } : null);
         miss.push(w);
       }
     });
@@ -607,7 +761,7 @@
         toast('已加入 ' + uniq.length + ' 词，其中 ' + miss.length + ' 个本地未收录，正在联网补全…');
       }, 60);
     } else {
-      toast('已加入 ' + found.length + ' 个单词');
+      toast('已加入 ' + (IN_MODE === 'p' ? found.length + ' 个词组' : found.length + ' 个单词'));
     }
     setTimeout(function () { nearTip(uniq); }, 700);
   };
@@ -640,7 +794,7 @@
     });
     h += '<button class="btn block gray mt" id="nearOk">知道了</button></div>';
     box.innerHTML = h;
-    document.body.appendChild(box);
+    mountLayer(box);
     document.getElementById('nearOk').onclick = function () { box.remove(); };
   }
   /* 输入时实时检查：存在的绿色，查不到的红色 */
@@ -700,13 +854,69 @@
   }
 
   var toastT;
-  function toast(msg) {
+  /* toast：只保留一个。
+     原 bug：clearTimeout 取消了上一个 toast 的移除定时器，但没删它的 DOM，
+     于是上一个 toast 永远挂在屏幕上（连续弹两次就必现）。 */
+  var toastEl = null;
+  /* 标题里的 emoji → 单色图标。
+     只在有 icons.js 时生效；没加载就保持原样，不影响功能。 */
+  function deEmojiTitles() {
+    if (typeof icon !== 'function' || typeof EMOJI2ICON === 'undefined') return;
+    var nodes = document.querySelectorAll('.card h3, .grp>h4, .lv1, #hdTitle');
+    Array.prototype.forEach.call(nodes, function (el) {
+      if (el.dataset.de === TAB + (el.firstChild && el.firstChild.nodeValue || '')) return;
+      // 只处理纯文本开头（第一个子节点是文本且以 emoji 开头）
+      var t = el.firstChild;
+      if (!t || t.nodeType !== 3) return;
+      var txt = t.nodeValue;
+      var keys = Object.keys(EMOJI2ICON);
+      for (var i = 0; i < keys.length; i++) {
+        if (txt.indexOf(keys[i]) === 0) {
+          var span = document.createElement('span');
+          span.innerHTML = icon(EMOJI2ICON[keys[i]], 17) +
+            '<span style="margin-left:6px"></span>' + txt.slice(keys[i].length);
+          el.replaceChild(span, t);
+          el.dataset.de = TAB + txt;
+          return;
+        }
+      }
+      el.dataset.de = TAB + txt;
+    });
+  }
+
+  /* 统一挂载浮层：先清掉同名旧浮层。
+     同类 bug：重复打开会创建两个同 id 元素，关闭时只能关掉第一个，
+     第二个永久挂在页面上挡住操作。 */
+  function mountLayer(el) {
+    if (!el || !el.id) { document.body.appendChild(el); return el; }
+    var old = document.getElementById(el.id);
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function toast(msg, ms) {
+    if (toastEl && toastEl.parentNode) toastEl.parentNode.removeChild(toastEl);
+    clearTimeout(toastT);
     var d = document.createElement('div');
-    d.style.cssText = 'position:fixed;left:50%;top:12%;transform:translateX(-50%);background:rgba(28,35,51,.92);color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;z-index:999;max-width:80%;text-align:center';
+    d.style.cssText = 'position:fixed;left:50%;top:12%;transform:translateX(-50%);background:rgba(28,35,51,.92);color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;z-index:999;max-width:80%;text-align:center;transition:opacity .25s';
+    d.className = 'appToast';
     d.textContent = msg;
     document.body.appendChild(d);
+    toastEl = d;
+    toastT = setTimeout(function () {
+      d.style.opacity = '0';
+      setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); if (toastEl === d) toastEl = null; }, 260);
+    }, ms || 2200);
+  }
+  /* 兜底：任何时刻页面上都只允许存在一个 toast */
+  function killToast() {
     clearTimeout(toastT);
-    toastT = setTimeout(function () { d.remove(); }, 2200);
+    if (toastEl && toastEl.parentNode) toastEl.parentNode.removeChild(toastEl);
+    toastEl = null;
+  }
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('pagehide', killToast);
   }
 
   /* ---------------- 练习 ---------------- */
@@ -723,6 +933,33 @@
   function viewPractice() {
     if (QZ) return viewQuiz();
     var h = '';
+    var phN = phrasePool().length;
+    h += '<div class="card"><div class="row" style="gap:6px">' +
+      '<button class="btn sm ' + (PZ_MODE ? 'gray' : '') + '" data-act="pzMode" data-v="0">🔤 单词</button>' +
+      '<button class="btn sm ' + (PZ_MODE ? '' : 'gray') + '" data-act="pzMode" data-v="1">💬 词组（汉译英）</button>' +
+      '</div>' +
+      (PZ_MODE ? '<div class="muted mt small">给中文写英文词组——练的是「写作时想不想得起来」。</div>' : '') +
+      '</div>';
+
+    if (PZ_MODE) {
+      if (!phN) {
+        h += '<div class="card"><div class="empty">还没有词组。<br>去首页切到「💬 词组/句型」，或点「📚 挑常用词组」。</div>' +
+          '<div class="row mt"><button class="btn sm" data-act="goHomePhrase">去挑词组</button></div></div>';
+        return h;
+      }
+      var lv = S.settings.phraseLevel || 0;
+      h += '<div class="card"><h3>🎚 难度</h3>' +
+        '<div class="scroll-x">' +
+        [[0, '引导（留首尾字母）'], [1, '标准（只给首字母）'], [2, '挑战（不给提示）']].map(function (d) {
+          return '<button class="chip' + (lv === d[0] ? ' on' : '') + '" data-act="setPhLevel" data-v="' + d[0] + '">' + d[1] + '</button>';
+        }).join('') + '</div>' +
+        '<div class="muted mt small">也可在「我的 → 学习设置 → 词组练习难度」里改。</div></div>';
+      h += '<div class="card"><button class="btn block hero" data-act="startPhraseQuiz">' +
+        '开始练习（' + Math.min(S.settings.round || 10, phN) + ' 题）</button>' +
+        '<div class="muted mt small">词组库共 ' + phN + ' 条</div></div>';
+      return h;
+    }
+
     h += '<div class="card"><h3>🎯 选词范围</h3>' +
       '<div class="scroll-x">' +
       ['today:今日单词', 'due:待复习', 'wrongbook:错题本', 'all:全部词库'].map(function (s, i) {
@@ -745,7 +982,7 @@
       '<div class="row mt"><button class="btn light sm" data-act="allModes">全选</button>' +
       '<button class="btn light sm" data-act="sel3">只练听+拼写</button></div></div>';
 
-    h += '<div class="card"><button class="btn block" data-act="startQuiz">开始练习（' + (S.settings.round || 10) + ' 题）</button>' +
+    h += '<div class="card"><button class="btn block hero" data-act="startQuiz">开始练习（' + (S.settings.round || 10) + ' 题）</button>' +
       '<div class="muted mt">提示：拼写题会按你的设置随机加「（复数）（过去式）」等提示，答案写对应形式；大小写不敏感。</div></div>';
     return h;
   }
@@ -811,6 +1048,45 @@
       '<div class="bar"><i style="width:' + Math.round(QZ.i / QZ.list.length * 100) + '%"></i></div>';
 
     var isSp = /sp$/.test(q.mode);
+
+    /* ---- 词组汉译英：给中文写英文，答完显示完整词组 ---- */
+    if (q.mode === 'cn2ph') {
+      var lv = S.settings.phraseLevel || 0;
+      h += '<div class="stem"><div class="big">' + esc(q.cn) + '</div>' +
+        '<div class="muted mt small">写出对应的英文词组</div></div>';
+      if (!QZ.showFb) {
+        var hint = phraseHint(q.ans, lv);
+        if (hint) {
+          h += '<div class="card" style="background:#f7f9fd;text-align:center">' +
+            '<span style="font-family:monospace;font-size:17px;letter-spacing:2px">' + esc(hint) + '</span></div>';
+        } else {
+          h += '<div class="muted center small">（挑战模式，无提示）</div>';
+        }
+        h += '<input type="text" id="phIn" placeholder="输入英文词组" autocomplete="off" autocapitalize="off" ' +
+          'style="font-size:16px;padding:12px;width:100%;margin-top:10px">';
+        h += '<div class="row mt"><button class="btn block" data-act="phSubmit">提交</button></div>' +
+          '<div class="row mt"><button class="btn sm gray" data-act="phShowAns">看答案</button>' +
+          '<button class="btn sm gray" data-act="quitQuiz">退出</button></div>';
+        setTimeout(function () {
+          var el = document.getElementById('phIn');
+          if (el) { el.focus(); }
+        }, 120);
+        return h;
+      }
+      var r = QZ.phRes || {};
+      h += '<div class="fb ' + (r.ok ? 'ok' : 'bad') + '">' +
+        '<b>' + esc(q.ans) + '</b>　' + esc(q.cn) +
+        '<div class="muted mt small">你写的：' + (r.input ? esc(r.input) : '（空）') + '</div></div>';
+      if (!r.ok) {
+        h += '<div class="card" style="background:#fff8e6">' +
+          '<div class="muted small">重点看错在哪几个字母，再写一遍比多看几遍有用。</div></div>';
+      }
+      h += '<div class="row mt">' +
+        '<button class="btn" data-act="phNext">' + (QZ.i + 1 >= QZ.list.length ? '看结果' : '下一题') + '</button>' +
+        '<button class="btn gray" data-act="phAgain">再来一次</button></div>';
+      return h;
+    }
+
     if (q.mode === 'word2cn') {
       h += '<div class="stem"><div class="big">' + esc(q.word) + '</div>' + (q.ph ? '<div class="ph">/' + esc(q.ph) + '/</div>' : '') + '</div>';
     } else if (q.mode === 'ph2cn') {
@@ -922,6 +1198,28 @@
     render();
     setTimeout(function () { autoSpeak(QZ.list[QZ.i]); }, 250);
   };
+  ACT.phSubmit = function () {
+    var el = document.getElementById('phIn');
+    var v = (el && el.value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    var q = QZ.list[QZ.i];
+    var ans = (q.ans || '').toLowerCase();
+    // 词组更长，宽容度按长度放宽：<=6 差1个，7-14 差2个，>14 差3个
+    var cap = ans.length > 14 ? 3 : (ans.length > 6 ? 2 : 1);
+    var ok = false;
+    if (v === ans) ok = true;
+    else if (S.settings.loose) ok = edist(v, ans) <= cap;
+    QZ.phRes = { ok: ok, input: v };
+    if (ok) { QZ.right++; } else { QZ.wrong.push(q.id); }
+    var w = S.words[q.id];
+    if (w) { if (ok) w.ok = (w.ok || 0) + 1; else w.bad = (w.bad || 0) + 1; }
+    save();
+    QZ.showFb = true;
+    render();
+  };
+  ACT.phShowAns = function () { QZ.phRes = { ok: false, input: '(直接看了答案)' }; QZ.wrong.push(QZ.list[QZ.i].id); save(); QZ.showFb = true; render(); };
+  ACT.phNext = function () { QZ.phRes = null; QZ.showFb = false; QZ.i++; render(); };
+  ACT.phAgain = function () { QZ.phRes = null; QZ.showFb = false; render(); };
+
   ACT.quitQuiz = function () { QZ = null; render(); };
 
   function viewResult() {
@@ -1362,7 +1660,7 @@
       '<button id="cfNo" style="flex:1;background:#eef1f7;color:#1c2333;border:none;border-radius:9px;padding:11px;font-size:14px">取消</button>' +
       '<button id="cfYes" style="flex:1;background:#f0454c;color:#fff;border:none;border-radius:9px;padding:11px;font-size:14px;font-weight:500">删除</button>' +
       '</div></div>';
-    document.body.appendChild(box);
+    mountLayer(box);
     document.getElementById('cfNo').onclick = function () { box.remove(); };
     document.getElementById('cfYes').onclick = function () { box.remove(); onYes(); };
   }
@@ -1837,8 +2135,9 @@
       rb = '<span class="rootbadge" data-act="showRoot" data-w="' + esc(w.w) + '">💡 ' +
         esc(roots[0].k) + '</span>';
     }
+    var pb = w.phrase ? '<span class="pill" style="background:#e8f5e9;color:#2f9e44">词组</span>' : '';
     return '<div class="w"><div class="wb" data-act="showWordCard" data-w="' + esc(w.w) + '">' +
-      '<div class="ww">' + esc(w.w) + ' ' + lv + ' ' + rb + '</div>' +
+      '<div class="ww">' + esc(w.w) + ' ' + lv + ' ' + pb + ' ' + rb + '</div>' +
       (w.ph ? '<div class="wp">/' + esc(w.ph) + '/</div>' : '') +
       '<div class="wc">' + (w.cn ? esc(w.cn) : '<span class="pill bad">待补全</span>') + '</div>' +
       '<div>' + w.tags.map(function (t) { return '<span class="tag b">' + esc(t) + '</span>'; }).join('') + '</div></div>' +
@@ -1904,7 +2203,7 @@
 
     h += '<button class="btn block gray mt" id="studyClose">关闭</button></div>';
     box.innerHTML = h;
-    document.body.appendChild(box);
+    mountLayer(box);
     box.onclick = function (e) { if (e.target === box) box.remove(); };
     document.getElementById('studyClose').onclick = function () { box.remove(); };
   };
@@ -1989,7 +2288,7 @@
       '<button class="btn sm gray" data-act="wcAddBad" data-w="' + esc(w) + '">加入错题本</button></div>' +
       '<button class="btn block gray mt" id="wcClose">关闭</button></div>';
     box.innerHTML = h;
-    document.body.appendChild(box);
+    mountLayer(box);
     box.onclick = function (e) { if (e.target === box) box.remove(); };
     document.getElementById('wcClose').onclick = function () { box.remove(); };
     bindIn(box, function () { });
@@ -2098,7 +2397,7 @@
     bar.innerHTML = '<div style="flex:1;font-size:13.5px">' + esc(msg) + '</div>' +
       '<button id="undoBtn" style="background:#3b6ef6;color:#fff;border:none;border-radius:8px;' +
       'padding:8px 14px;font-size:13.5px;font-weight:600">撤销</button>';
-    document.body.appendChild(bar);
+    mountLayer(bar);
     document.getElementById('undoBtn').onclick = function () {
       clearTimeout(undoT); bar.remove(); onUndo();
     };
@@ -2193,7 +2492,7 @@
       '<button class="btn gray" id="gSkip">跳过引导</button></div>' +
       '<div class="center muted mt" style="font-size:12px">' + (step + 1) + ' / ' + GUIDE.length + '</div>' +
       '</div>';
-    document.body.appendChild(box);
+    mountLayer(box);
     document.getElementById('gSkip').onclick = function () {
       S.guided = 1; save(); box.remove();
     };
@@ -2295,7 +2594,7 @@
     });
     h += '<button class="btn block gray mt" id="helpClose">关闭</button></div>';
     box.innerHTML = h;
-    document.body.appendChild(box);
+    mountLayer(box);
     box.onclick = function (e) { if (e.target === box) box.remove(); };
     document.getElementById('helpClose').onclick = function () { box.remove(); };
     // 关键：弹窗在 body 上，bind() 扫不到，必须单独绑定
@@ -2372,7 +2671,7 @@
 
     box2 += '<button class="btn block gray mt" id="tipsClose">关闭</button></div>';
     box.innerHTML = box2;
-    document.body.appendChild(box);
+    mountLayer(box);
     box.onclick = function (e) { if (e.target === box) box.remove(); };
     document.getElementById('tipsClose').onclick = function () { box.remove(); };
   };
@@ -2492,7 +2791,7 @@
         '<div class="muted" style="font-size:12.5px;margin-top:6px">' +
         esc(roots[0].ex.slice(0, 4).join('　')) + '</div></div>' : '') +
       '<div class="row mt"><button class="btn block gray" id="fcClose">关闭</button></div></div>';
-    document.body.appendChild(box);
+    mountLayer(box);
     box.onclick = function (e) { if (e.target === box) box.remove(); };
     document.getElementById('fcClose').onclick = function () { box.remove(); };
   };
@@ -2531,8 +2830,102 @@
     return prev[m];
   }
 
+  /* ---------------- 插件系统 ---------------- */
+  /* 设计原则：插件默认关闭，不开就完全不加载、不占资源、界面上不存在。
+     每个插件是一个独立 .js 文件，声明自己的挂载点。
+     关掉插件 = 把文件从加载列表里移除，不会有残留。 */
+
+  var PLUGINS = [
+    { id: 'buddy', name: '学习伙伴', icon: '🐣', file: 'plugin-buddy.js',
+      desc: '一只会陪你背单词的小家伙：答对有反应，连续打卡会换装，久不学会念叨你。',
+      off: '关闭后页面里不会出现它，也不占任何资源。' },
+    { id: 'notice', name: '到点提醒', icon: '⏰', file: 'plugin-notice.js',
+      desc: '在你设定的时间提醒复习（需授权通知，且页面要开着）。',
+      off: '关闭后不会请求任何通知权限。' }
+  ];
+
+  var PLUGIN_LOADED = {};      // id → true
+  var PLUGIN_HOOKS = {};       // 事件名 → [函数]
+
+  function plugOn(id) {
+    var st = S.settings.plugins || {};
+    return !!st[id];
+  }
+
+  /* 触发钩子：所有插件都能监听主程序的事件 */
+  function emit(evt, data) {
+    var fns = PLUGIN_HOOKS[evt];
+    if (!fns || !fns.length) return;
+    fns.forEach(function (f) {
+      try { f(data); } catch (e) { /* 插件出错不能影响主程序 */ }
+    });
+  }
+
+  /* 插件注册 API：插件文件里调用 AppPlugin.register(...) */
+  window.AppPlugin = {
+    on: function (evt, fn) { (PLUGIN_HOOKS[evt] = PLUGIN_HOOKS[evt] || []).push(fn); },
+    emit: emit,
+    get S() { return S; },
+    get ACT() { return ACT; },
+    toast: toast,
+    go: go,
+    render: render,
+    save: save,
+    esc: esc,
+    allWords: allWords,
+    today: today,
+    on: function (evt, fn) { (PLUGIN_HOOKS[evt] = PLUGIN_HOOKS[evt] || []).push(fn); },
+    /* 插件往指定位置插 HTML */
+    slot: function (name) {
+      var out = [];
+      (PLUGIN_SLOTS[name] || []).forEach(function (f) {
+        try { var h = f(); if (h) out.push(h); } catch (e) { }
+      });
+      return out.join('');
+    },
+    addSlot: function (name, fn) { (PLUGIN_SLOTS[name] = PLUGIN_SLOTS[name] || []).push(fn); }
+  };
+  var PLUGIN_SLOTS = {};
+
+  /* 按需加载已开启的插件：只加载开着的，关掉的连文件都不下载 */
+  function loadPlugins() {
+    var jobs = [];
+    PLUGINS.forEach(function (p) {
+      if (!plugOn(p.id)) return;                 // 没开 → 不加载
+      if (PLUGIN_LOADED[p.id]) return;           // 已加载 → 不重复
+      jobs.push(loadJs(p.file).then(function () {
+        PLUGIN_LOADED[p.id] = true;
+        emit('pluginLoaded', p.id);
+      }).catch(function () { }));
+    });
+    return Promise.all(jobs);
+  }
+  function loadJs(src) {
+    return new Promise(function (res, rej) {
+      var s = document.createElement('script');
+      s.src = src; s.onload = res;
+      s.onerror = function () { rej(new Error(src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  ACT.togglePlugin = function (el) {
+    var id = el.dataset.v;
+    S.settings.plugins = S.settings.plugins || {};
+    var now = !S.settings.plugins[id];
+    S.settings.plugins[id] = now;
+    save();
+    if (now) {
+      toast('已开启，重新加载后生效');
+      setTimeout(function () { location.reload(); }, 900);
+    } else {
+      toast('已关闭');
+      render();
+    }
+  };
+
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '2-4-0', APP_BUILD = 2026012205;
+  var APP_VER = '2-7-0', APP_BUILD = 2026012304;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -2562,7 +2955,7 @@
       'padding:10px;font-size:14px;font-weight:500">立即更新</button>' +
       '<button id="updLater" style="background:#eef1f7;color:#1c2333;border:none;border-radius:9px;' +
       'padding:10px 16px;font-size:14px">稍后</button></div>';
-    document.body.appendChild(box);
+    mountLayer(box);
     document.getElementById('updNow').onclick = function () { doUpdate(); };
     document.getElementById('updLater').onclick = function () { box.remove(); };
   }
@@ -2867,6 +3260,9 @@
       '<button class="btn sm" data-act="showHelp">打开</button></div>' +
       '<div class="row mt"><button class="btn sm light" data-act="replayGuide">重看新手引导</button></div></div>';
 
+    // 插件槽
+    if (typeof PLUGIN_SLOTS !== 'undefined') h += AppPlugin.slot('meTop');
+
     // 2. 登录：未登录时默认展开（要引导登录），已登录则折叠
     var loginBody = '';
     if (!isLogin) {
@@ -2904,25 +3300,65 @@
       '<span class="ar">›</span></h4><div class="gb">' + loginBody + '</div></div>';
 
     // 3. 学习设置（折叠）
-    var setBody = '<label class="f">每日目标（词）</label>' +
+    /* 学习设置按「用途」分小块：日常量 / 难度 / 发音。
+       全部即时生效（改完马上存），不需要点保存按钮。 */
+    function sub(t) {
+      return '<div style="font-size:12.5px;font-weight:600;color:#3b6ef6;margin:14px 0 7px;' +
+        'padding-bottom:5px;border-bottom:1px solid #eef1f7">' + t + '</div>';
+    }
+    var phN = allWords().filter(function (x) { return x.phrase; }).length;
+    var setBody = '';
+
+    setBody += sub('📅 日常量');
+    setBody += '<label class="f">每日目标（词）</label>' +
       '<input type="number" id="setDaily" value="' + st.daily + '" min="5" max="200">' +
       '<label class="f">每轮题量（道）</label>' +
       '<div class="scroll-x">' + [5, 10, 20, 30, 50].map(function (n) {
         return '<button class="chip' + (st.round === n ? ' on' : '') + '" data-act="setRound" data-v="' + n + '">' + n + ' 题</button>';
-      }).join('') + '</div>' +
-      '<label class="f">拼写题出「变形」的比例（%）</label>' +
-      '<input type="number" id="setInf" value="' + st.inflect + '" min="0" max="100">' +
-      '<label class="f">判分宽松度</label>' +
+      }).join('') + '</div>';
+
+    setBody += sub('🎚 难度');
+    setBody += '<label class="f">判分宽松度</label>' +
       '<div class="row"><button class="btn sm ' + (st.loose ? '' : 'gray') + '" data-act="setLoose" data-v="1">宽容（差1字母算对）</button>' +
-      '<button class="btn sm ' + (st.loose ? 'gray' : '') + '" data-act="setLoose" data-v="0">严格</button></div>' +
-      '<label class="f">听力播放倍速</label>' +
+      '<button class="btn sm ' + (st.loose ? 'gray' : '') + '" data-act="setLoose" data-v="0">严格</button></div>';
+    setBody += '<label class="f">拼写题出「变形」的比例（%）</label>' +
+      '<input type="number" id="setInf" value="' + st.inflect + '" min="0" max="100">';
+    setBody += '<label class="f">💬 词组练习难度 <span class="pill">' + phN + ' 条</span></label>' +
+      '<div class="scroll-x">' +
+      [[0, '引导（留首尾字母）'], [1, '标准（只给首字母）'], [2, '挑战（不给提示）']].map(function (d) {
+        return '<button class="chip' + ((st.phraseLevel || 0) === d[0] ? ' on' : '') +
+          '" data-act="setPhLevel" data-v="' + d[0] + '">' + d[1] + '</button>';
+      }).join('') + '</div>' +
+      '<div class="muted mt small">词组越长越该先要提示。建议：新词组用「引导」，' +
+      '能稳定写对后再升「标准」，考前一周用「挑战」。</div>';
+
+    setBody += sub('🔊 听力');
+    setBody += '<label class="f">播放倍速</label>' +
       '<div class="row">' + [0.7, 0.85, 1, 1.25, 1.5].map(function (r) {
         return '<button class="btn sm ' + ((S.settings.rate || 1) === r ? '' : 'gray') +
           '" data-act="setRate" data-r="' + r + '">' + r + '×</button>';
       }).join('') + '</div>' +
       '<div class="muted mt small">精听建议 0.7× 或 0.85×，先把每个词听清；熟练后 1.25× 提速。</div>' +
-      '<div class="mt"><button class="btn block" data-act="saveSet">保存设置</button></div>';
+      '<div class="mt"><button class="btn block" data-act="saveSet">保存文字输入类设置</button></div>' +
+      '<div class="muted mt center small">上方带按钮的选项点完即时生效；' +
+      '每日目标和变形比例是输入框，改完点这里保存。</div>';
     h += grp('⚙️', '学习设置', setBody, false);
+
+    // 3.5 插件模组
+    var plugBody = '<div class="muted mb" style="font-size:12px">插件默认全部关闭。' +
+      '开启后才会下载对应的文件，关闭后页面里完全看不到它。</div>';
+    PLUGINS.forEach(function (p) {
+      var on = plugOn(p.id);
+      plugBody += '<div style="padding:10px 0;border-top:1px solid #f0f2f7">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:17px">' + p.icon + '</span>' +
+        '<b style="font-size:13.5px">' + esc(p.name) + '</b>' +
+        '<button class="btn sm ' + (on ? 'gray' : '') + '" style="margin-left:auto" ' +
+        'data-act="togglePlugin" data-v="' + p.id + '">' + (on ? '关闭' : '开启') + '</button></div>' +
+        '<div class="muted" style="font-size:12px;line-height:1.7;margin:4px 0 0 25px">' +
+        esc(on ? p.desc : p.off) + '</div></div>';
+    });
+    h += grp('🧩', '插件模组', plugBody, false);
 
     // 4. 发音（折叠）
     var voiceBody = '<div class="row"><button class="btn sm ' + (st.voice === 'real' ? '' : 'gray') + '" data-act="setVoice" data-v="real">真人优先</button>' +
@@ -3062,6 +3498,18 @@
   };
 
   /* ---------------- 启动 ---------------- */
+  /* 导航图标换成单色 SVG（emoji 在深色模式太抢眼，抢走了标题的注意力） */
+  function paintNavIcons() {
+    Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) {
+      var i = b.querySelector('i[data-ic]');
+      if (!i) return;
+      var on = b.classList.contains('on');
+      if (typeof icon === 'function') {
+        i.innerHTML = icon(i.dataset.ic, on ? 23 : 21);
+      }
+    });
+  }
+  paintNavIcons();
   Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) {
     b.addEventListener('click', function () { go(b.dataset.tab); });
   });
@@ -3077,6 +3525,10 @@
   }
   go('home');
   initScroll();
+  // 加载已开启的插件（关掉的连文件都不下载）
+  setTimeout(function () {
+    loadPlugins().then(function () { render(); emit('pluginLoaded', '*'); });
+  }, 300);
 
   /* 跨天检测：手机把页面挂后台几天后再打开，日期还停在打开那天。
      这里在「页面重新可见」和「每分钟轮询」两个时机检查日期，
@@ -3110,7 +3562,7 @@
     near: near, makeQ: makeQ, beginQuiz: beginQuiz, addWord: addWord, render: render,
     quiz: function () { return QZ; }, act: ACT, speak: speak,
     allWords: allWords, delWord: delWord, today: today,
-    shortCn: shortCn, hasMoreCn: hasMoreCn, get TAB(){return TAB;}, get QZ(){return QZ;}, nearWords: nearWords,
+    shortCn: shortCn, hasMoreCn: hasMoreCn, get TAB(){return TAB;}, get QZ(){return QZ;}, phraseHint: phraseHint, phrasePool: phrasePool, toast: toast, nearWords: nearWords,
     get LIB_CHAR(){return LIB_CHAR;}, get LIB_TAG(){return LIB_TAG;}, findRoots: (typeof findRoots === 'function' ? findRoots : null),
     paper: function () { return PAPER_STATE; }, beginPaper: beginPaper
   };

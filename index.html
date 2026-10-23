@@ -29,7 +29,13 @@ header h1{margin:0;font-size:17px;font-weight:600;display:flex;align-items:cente
 header .sub{font-size:12px;opacity:.85;margin-top:3px}
 main{padding:12px}
 .card{background:var(--card);border-radius:var(--radius);padding:14px;margin-bottom:12px;box-shadow:0 2px 10px rgba(28,35,51,.05)}
-.card h3{margin:0 0 10px;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+.card h3{margin:0 0 10px;font-size:15.5px;font-weight:600;color:#1c2333;display:flex;justify-content:space-between;align-items:center;letter-spacing:-.2px}
+/* 三级层级：一级深色粗 / 二级中灰 / 三级浅灰小字 */
+.lv1{font-size:16px;font-weight:600;color:#1c2333}
+.lv2{font-size:14px;font-weight:400;color:#48536b}
+.lv3{font-size:12.5px;font-weight:400;color:#8b94a8}
+/* 卡片内 emoji 降重：彩色 emoji 视觉太重，会跟标题抢注意力 */
+.card h3 .ico,.grp>h4 .ico,.lv1 .ico{opacity:.9;filter:saturate(.85);margin-right:2px}
 .muted{color:var(--sub);font-size:12.5px;line-height:1.6}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--pri);color:#fff;
   border-radius:10px;padding:11px 16px;font-size:15px;font-weight:500;min-height:44px}
@@ -88,8 +94,13 @@ button.chip:active{opacity:.7}
 /* 底部导航 */
 nav{position:fixed;bottom:0;left:0;right:0;z-index:60;background:#fff;border-top:1px solid var(--line);
   display:flex;padding-bottom:env(safe-area-inset-bottom)}
-nav button{flex:1;padding:8px 0 7px;font-size:11px;color:#8b94a8;display:flex;flex-direction:column;align-items:center;gap:3px}
-nav button i{font-style:normal;font-size:20px;line-height:1}
+nav button{flex:1;padding:8px 0 7px;font-size:11px;color:#9aa3b5;display:flex;flex-direction:column;align-items:center;gap:3px;transition:.15s}
+nav button i{font-style:normal;font-size:20px;line-height:1;opacity:.62;transition:.15s;
+  display:flex;align-items:center;justify-content:center;height:23px}
+nav button i svg{display:block}
+/* 当前页：图标放大 + 加深 + 指示点，未选中项主动弱化 */
+nav button.on{color:var(--pri);font-weight:600}
+nav button.on i{opacity:1;font-size:22px;transform:translateY(-1px)}
 nav button.on{color:var(--pri)}
 .pill{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11.5px;background:#eef1f7;color:var(--sub)}
 .pill.ok{background:#e9fbf3;color:#0a7f5c}
@@ -148,6 +159,22 @@ nav button.on{color:var(--pri)}
 .rootbadge{display:inline-block;background:#eaf0ff;color:#3b6ef6;border-radius:6px;
   padding:2px 7px;font-size:11.5px;font-weight:600;margin-left:4px;cursor:pointer;vertical-align:middle}
 .rootbadge:active{opacity:.65}
+
+/* 插件：学习伙伴 */
+.buddy-card{position:relative}
+.buddy-avatar{width:52px;height:52px;border-radius:50%;background:#f2f7ff;
+  display:flex;align-items:center;justify-content:center;font-size:30px;cursor:pointer;
+  flex:0 0 auto;transition:transform .2s}
+.buddy-avatar:active{transform:scale(.88)}
+.buddy-bar{height:5px;background:#eef1f7;border-radius:3px;margin-top:6px;overflow:hidden}
+.buddy-bar i{display:block;height:100%;background:linear-gradient(90deg,#3b6ef6,#12b886);
+  border-radius:3px;transition:width .4s}
+.buddy-bubble{position:absolute;left:64px;top:52px;background:#3b6ef6;color:#fff;
+  font-size:12.5px;padding:7px 11px;border-radius:11px;max-width:230px;
+  opacity:0;transform:translateY(-4px);transition:.25s;pointer-events:none;z-index:5}
+.buddy-bubble.show{opacity:1;transform:translateY(0)}
+.buddy-bubble:after{content:'';position:absolute;left:-5px;top:11px;
+  border:6px solid transparent;border-right-color:#3b6ef6}
 </style>
 </head>
 <body>
@@ -164,11 +191,11 @@ nav button.on{color:var(--pri)}
 <main id="app"></main>
 
 <nav id="nav">
-  <button data-tab="home" class="on"><i>🏠</i>今日</button>
-  <button data-tab="practice"><i>🎯</i>练习</button>
-  <button data-tab="paper"><i>📝</i>真题</button>
-  <button data-tab="lib"><i>📖</i>词库</button>
-  <button data-tab="me"><i>⚙️</i>我的</button>
+  <button data-tab="home" class="on"><i data-ic="home">🏠</i>今日</button>
+  <button data-tab="practice"><i data-ic="practice">🎯</i>练习</button>
+  <button data-tab="paper"><i data-ic="paper">📝</i>真题</button>
+  <button data-tab="lib"><i data-ic="lib">📖</i>词库</button>
+  <button data-tab="me"><i data-ic="me">⚙️</i>我的</button>
 </nav>
 
 <script src="loader.js"></script>
