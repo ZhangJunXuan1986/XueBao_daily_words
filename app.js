@@ -330,7 +330,7 @@
   }
 
   /* ---------------- 出题 ---------------- */
-  function poolOf(scope, tag) {
+  function poolOf(scope, tag, ch) {
     var ids = [];
     if (scope === 'today') ids = todayIds();
     else if (scope === 'due') ids = dueIds();
@@ -339,17 +339,18 @@
     else if (scope === 'wrongbook') ids = allWords().filter(function (w) { return w.tags.indexOf('错题本') >= 0; }).map(function (w) { return w.id; });
     else ids = todayIds().concat(dueIds());
     if (tag && tag !== '__all') ids = ids.filter(function (id) { return S.words[id] && S.words[id].tags.indexOf(tag) >= 0; });
+    // 首字母小类（词库页两级分类里的「小类」）
+    if (ch) ids = ids.filter(function (id) {
+      return S.words[id] && (S.words[id].w || '').charAt(0).toLowerCase() === ch.toLowerCase();
+    });
     ids = ids.filter(function (id) { return S.words[id]; });
     // 到期优先 + 随机
     ids = shuf(ids);
     ids.sort(function (a, b) { return (S.words[a].due || '') < (S.words[b].due || '') ? -1 : 1; });
     return ids.slice(0, S.settings.round || 10);
   }
-  function shortCn(cn) {
-    cn = tidy(cn).replace(/^[a-z]{1,5}\.\s*/i, '');
-    if (cn.length > 26) cn = cn.slice(0, 26) + '…';
-    return cn || '（无释义）';
-  }
+  /* 注意：shortCn 全文只有一处定义（在下方「按义项智能截断」那版）。
+     早期这里还有一版「按 26 字硬切」，会被后面的定义覆盖，已删除，避免误导。 */
   /* full=true 时返回完整释义：渲染时再截断，这样才有「全文」可展开。
      注意：去重/比较始终用 shortCn，避免短义相同的词重复出现。 */
   function distracts(cn, n, full) {
@@ -1015,7 +1016,7 @@
   ACT.sel3 = function () { S.settings.modes = ['au2cn', 'cn2sp', 'au2sp']; save(); render(); };
 
   function startPractice(scope, day) {
-    var ids = scope === 'day' ? (S.daily[day] || []) : poolOf(scope || PS.scope, PS.tag);
+    var ids = scope === 'day' ? (S.daily[day] || []) : poolOf(scope || PS.scope, PS.tag, PS.ch);
     if (!ids.length) { toast('这个范围暂时没有单词'); return; }
     beginQuiz(ids);
     go('practice');
@@ -1367,27 +1368,6 @@
     return items.length;
   }
 
-  ACT.fillSample = function () {
-    var ta = document.querySelector('#impTxt');
-    if (ta) {
-      ta.value = '46. What do we learn from new research about pandas?\n' +
-        'A) They are losing habitat due to building roads.\n' +
-        'B) They have stopped seeking new mates.\n' +
-        'C) They may not adapt to fragmentation.\n' +
-        'D) They may cease to exist from too good a life.';
-    }
-    var nm = document.querySelector('#impName');
-    if (nm) nm.value = '测试-单题';
-    toast('已填入示例，点「解析并导入」试试');
-  };
-  ACT.importPasteText = function () {
-    var txt = ($('#impTxt').value || '').trim();
-    if (!txt) { alert('请先粘贴题目文字'); return; }
-    var n = addPaperFromText(txt, ($('#impName').value || '').trim());
-    if (!n) { alert('没能识别出题目。请检查格式：题号要用「1.」或「46.」这种形式。'); return; }
-    toast('已导入 ' + n + ' 道题');
-    render();
-  };
 
   ACT.impType = function (el) {
     IMP_TYPE = el.dataset.v || 'pdf';
@@ -1445,38 +1425,7 @@
     });
   }
 
-  ACT.importPaperFile = function () {
-    var i = document.createElement('input');
-    i.type = 'file'; i.accept = '.json,application/json';
-    i.onchange = function () {
-      var f = i.files[0]; if (!f) return;
-      var fr = new FileReader();
-      fr.onload = function () {
-        try {
-          var o = JSON.parse(fr.result);
-          var ps = o.papers || (o.items ? [o] : null);
-          if (!ps || !ps.length) throw 0;
-          var added = 0, skipped = 0;
-          ps.forEach(function (p) {
-            if (!p.items || !p.items.length) return;
-            if (S.papers.some(function (x) { return x.id === p.id; })) { skipped++; return; }
-            p.items.forEach(function (it) { if (!it.id) it.id = uid(); });
-            S.papers.push(p); added++;
-          });
-          save(); render();
-          toast(added ? ('导入成功：新增 ' + added + ' 套' + (skipped ? '，跳过重复 ' + skipped + ' 套' : '')) : '这套试卷已经在题库里了');
-        } catch (e) {
-          alert('这个文件不是 .json 试卷包。\n\n' +
-            '如果你手里是 PDF 或 Word 真题：\n' +
-            '发给我（元宝），我帮你转成 .json，再回来导入。\n\n' +
-            'JSON 是中间格式，App 只认它。');
-        }
-      };
-      fr.readAsText(f);
-    };
-    i.click();
-  };
-
+  /* 整卷包(.json)入口已删除，对应的读取函数一并移除 */
   ACT.openAudio = function (el) {
     PAPER_STATE.pid = el.dataset.id;
     PAPER_STATE.view = 'audio';
@@ -2057,6 +2006,14 @@
       (LIB_TAG ? esc(LIB_TAG) + ' · ' : '') + (LIB_CHAR ? LIB_CHAR.toUpperCase() + ' 开头 · ' : '') +
       '共 ' + total + ' 词 <span class="pill">已显示 ' + n + '</span></h3>';
 
+    /* 选中标签/首字母后直接给个「练这一类」——
+       practiceTag 原来靠已删除的 libTag 触发，成了死代码，这里把它接回来 */
+    if (total && (LIB_TAG || LIB_CHAR)) {
+      h += '<div class="row mb"><button class="btn sm out" data-act="practiceRange"' +
+        ' data-tag="' + esc(LIB_TAG) + '" data-ch="' + esc(LIB_CHAR) + '">' +
+        '🎯 练这一类（' + total + ' 词）</button></div>';
+    }
+
     if (!total) {
       h += '<div class="empty">这一类还没有单词</div>';
     } else {
@@ -2339,17 +2296,13 @@
     addWord(w, r && r.cn, r && r.ph, [], null);
     toast('已加入今日单词');
   };
-  ACT.libTag = function (el) {
-    var t = el.dataset.v;
-    var ws = allWords().filter(function (w) { return w.tags.indexOf(t) >= 0; });
-    $('#tagOut').innerHTML = ws.length ? ws.map(function (w) {
-      return '<div class="w"><div class="wb"><div class="ww">' + esc(w.w) + '</div><div class="wc">' + esc(w.cn || '') + '</div></div>' +
-        '<div class="act"><button class="iconbtn" data-act="speak" data-w="' + esc(w.w) + '">🔊</button></div></div>';
-    }).join('') + '<button class="btn block mt" data-act="practiceTag" data-v="' + esc(t) + '">练习「' + esc(t) + '」</button>'
-      : '<div class="muted">该标签下暂无单词</div>';
-    bind();
+  /* 旧版「按标签浏览」已由词库页两级分类取代，原 libTag 引用了不存在的 #tagOut，删除 */
+  ACT.practiceRange = function (el) {
+    PS.tag = el.dataset.tag || '';
+    PS.ch = el.dataset.ch || '';
+    PS.scope = 'all';
+    startPractice('all');
   };
-  ACT.practiceTag = function (el) { PS.tag = el.dataset.v; PS.scope = 'all'; startPractice('all'); };
   /* 删除：不弹确认框，直接删 + 给 6 秒撤销窗口
      这是现代应用的标准做法（Gmail 首创）——比「确定删除吗」体验好得多：
      没有打断感，误删还能救回来。 */
@@ -2912,7 +2865,7 @@
   };
 
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '2-7-0', APP_BUILD = 2026012305;
+  var APP_VER = '2-7-1', APP_BUILD = 2026012306;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -3101,10 +3054,7 @@
     });
   }
 
-  ACT.goMe = function () { go('me'); setTimeout(function () {
-      var el = document.querySelector('#auUser'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 200); };
-
+  /* goMe 已无引用，删除 */
   ACT.checkUpd = function () {
     toast('正在检查…');
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -3259,24 +3209,44 @@
     if (!S.settings.api) {
       loginBody += '<div class="muted mb">填你电脑上跑起来的后端地址，就能把单词备份到 MySQL，换手机也不丢。</div>';
     }
-    loginBody += '<label class="f">后端地址</label>' +
-      '<input type="text" id="setApi" placeholder="http://192.168.1.5:8000" value="' + esc(S.settings.api || '') + '">' +
-      '<div class="muted mt small">电脑和手机连同一个 WiFi，填电脑的内网 IP（cmd 里 ipconfig 查）。</div>' +
-      '<div class="row mt"><button class="btn sm light" data-act="saveApi">保存地址</button></div>';
+    /* 后端类型切换。
+       之前只有自建后端的界面，云开发那套函数（cbRegister/cbLogin/cbPush…）
+       完全没有入口——填不了环境 ID，等于根本没做。这里补上。 */
+    var kind = S.settings.apiKind || 'self';
+    loginBody += '<label class="f">备份到哪</label><div class="scroll-x">' +
+      '<button class="chip' + (kind === 'cb' ? ' on' : '') + '" data-act="setKind" data-v="cb">☁️ 云开发（不用开电脑）</button>' +
+      '<button class="chip' + (kind === 'self' ? ' on' : '') + '" data-act="setKind" data-v="self">🖥️ 自建（要开电脑）</button>' +
+      '</div>';
+
+    if (kind === 'cb') {
+      loginBody += '<label class="f">云开发环境 ID</label>' +
+        '<input type="text" id="cbEnv" placeholder="如：abc-1x2y3z" value="' + esc(S.settings.cbEnv || '') + '">' +
+        '<div class="muted mt small">在腾讯云开发控制台创建环境后复制环境 ID。' +
+        '<b>还要去「登录授权」里开启「用户名密码登录」</b>，否则注册会失败。</div>' +
+        '<div class="row mt"><button class="btn sm light" data-act="saveCbEnv">保存环境 ID</button></div>';
+    } else {
+      loginBody += '<label class="f">后端地址</label>' +
+        '<input type="text" id="setApi" placeholder="http://192.168.1.5:8000" value="' + esc(S.settings.api || '') + '">' +
+        '<div class="muted mt small">电脑和手机连同一个 WiFi，填电脑的内网 IP（cmd 里 ipconfig 查）。</div>' +
+        '<div class="row mt"><button class="btn sm light" data-act="saveApi">保存地址</button></div>';
+    }
     if (S.token && S.user) {
       loginBody += '<div class="mt"><div class="list-item"><div class="t"><b>已登录：' + esc(S.user.nickname || S.user.username) + '</b>' +
         '<span>' + esc(S.user.username) + '</span></div>' +
         '<button class="btn sm gray" data-act="doLogout">退出</button></div></div>' +
         '<div id="cloudStats" class="mt"></div>' +
-        '<div class="row mt"><button class="btn" data-act="pushWords">⬆️ 备份到云端</button>' +
-        '<button class="btn gray" data-act="pullWords">⬇️ 从云端恢复</button></div>';
+        '<div class="row mt"><button class="btn" data-act="' +
+        ((S.settings.apiKind || 'self') === 'cb' ? 'cbPush' : 'pushWords') + '">⬆️ 备份到云端</button>' +
+        '<button class="btn gray" data-act="' +
+        ((S.settings.apiKind || 'self') === 'cb' ? 'cbPull' : 'pullWords') + '">⬇️ 从云端恢复</button></div>';
     } else {
+      var isCb = (S.settings.apiKind || 'self') === 'cb';
       loginBody += '<label class="f">用户名（至少 3 位）</label>' +
-        '<input type="text" id="auUser" autocomplete="off" placeholder="例如：zhongshan01">' +
+        '<input type="text" id="' + (isCb ? 'cbUser' : 'auUser') + '" autocomplete="off" placeholder="例如：zhongshan01">' +
         '<label class="f">密码（至少 6 位）</label>' +
-        '<input type="password" id="auPass" autocomplete="new-password" placeholder="至少 6 位">' +
-        '<div class="row mt"><button class="btn" data-act="doRegister">注册</button>' +
-        '<button class="btn gray" data-act="doLogin">登录</button></div>';
+        '<input type="password" id="' + (isCb ? 'cbPass' : 'auPass') + '" autocomplete="new-password" placeholder="至少 6 位">' +
+        '<div class="row mt"><button class="btn" data-act="' + (isCb ? 'cbRegister' : 'doRegister') + '">注册</button>' +
+        '<button class="btn gray" data-act="' + (isCb ? 'cbLogin' : 'doLogin') + '">登录</button></div>';
     }
     // 账户分组：用户没手动设置过时默认展开（登录后备份按钮要可见）
     var gst = grpState();
