@@ -319,6 +319,10 @@
   // 复习算法（简化 SM-2）
   var STEP = [0, 1, 2, 4, 7, 15, 30, 60];
   function review(id, ok) {
+    // 引导第 2 步：做够 1 题就打勾
+    var g = S.guide;
+    if (g && !g.off) { g.quizN = (g.quizN || 0) + 1; if (g.quizN === 1) markGuide('quiz'); else save(); }
+
     var w = S.words[id]; if (!w) return;
     if (ok) { w.box = Math.min((w.box || 0) + 1, STEP.length - 1); w.ok = (w.ok || 0) + 1; }
     else {
@@ -427,6 +431,8 @@
 
   function go(tab) {
     TAB = tab;
+    // 记录访问过的页面：新手引导靠它判断「看过词库/真题没有」
+    S.seen = S.seen || {}; S.seen[tab] = 1; save();
     Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) {
       b.classList.toggle('on', b.dataset.tab === tab);
     });
@@ -2393,98 +2399,194 @@
   }
 
   /* ---------------- 首次引导：让用户做一遍，而不是看一遍 ---------------- */
+  /* 新手引导：改成「带实时状态的任务清单」。
+     原来只有 3 步、全是文字说明——读完还是不会用。
+     现在每步有实时状态、能直接跳过去操作，做完自动打勾进下一步。 */
+  function gState() {
+    if (!S.guide) S.guide = { i: 0, done: {}, passed: {}, quizN: 0, off: 0 };
+    return S.guide;
+  }
+  function wordN() { return Object.keys(S.words || {}).length; }
+
   var GUIDE = [
     {
-      t: '第 1 步 · 加 3 个词',
+      k: 'add', t: '第 1 步 · 加 3 个词', act: 'goHomeAdd',
       d: '把今天遇到的单词粘进去，系统自动查中文和音标。',
-      act: 'goHomeAdd',
-      tip: '输入框里已经填好示例，直接点「加入词库」'
+      tip: '输入框里已经填好示例，直接点「加入词库」',
+      stat: function () { return '已加入 ' + wordN() + ' / 3 词'; },
+      done: function () { return wordN() >= 3; }
     },
     {
-      t: '第 2 步 · 做 1 道题',
-      d: '练习会强制你主动回忆，比反复看单词表有效得多。',
-      act: 'goPractice1',
-      tip: '选一个答案，答完看反馈'
+      k: 'quiz', t: '第 2 步 · 做 1 道题', act: 'goPractice1',
+      d: '练习是「主动回忆」，比反复看单词表记得牢得多。',
+      tip: '选一个答案，答完看反馈',
+      stat: function () { return '已做 ' + (gState().quizN || 0) + ' / 1 题'; },
+      done: function () { return (gState().quizN || 0) >= 1; }
     },
     {
-      t: '第 3 步 · 会用了',
+      k: 'lib', t: '第 3 步 · 看一眼词库', act: 'goLib',
+      d: '所有加过的词都在这里，可以按标签和首字母分类找。',
+      tip: '点单词还能看拆词记忆和形近词',
+      stat: function () { return '词库共 ' + wordN() + ' 词'; },
+      done: function () { return !!(S.seen && S.seen.lib); }
+    },
+    {
+      k: 'paper', t: '第 4 步 · 知道真题怎么进', act: 'goPaper',
+      d: '题目用 PDF/Word/粘贴文字导进来；音频单独上传；答案要另外配。',
+      tip: '这三样分别在哪，进去看一眼就清楚了',
+      stat: function () { return '已导入 ' + ((S.papers || []).length) + ' 套'; },
+      done: function () { return !!(S.seen && S.seen.paper); }
+    },
+    {
+      k: 'backup', t: '第 5 步 · 导出一次备份', act: 'goBackup',
+      d: '数据只存在这台手机，清缓存就没了。导出存微信，30 秒保命。',
+      tip: '我的 → 数据备份 → 导出备份',
+      stat: function () { return gState().done.backup ? '已备份 ✅' : '还没备份'; },
+      done: function () { return !!gState().done.backup; }
+    },
+    {
+      k: 'finish', t: '第 6 步 · 会用了', act: 'guideDone',
       d: '核心就三步：加词 → 练习 → 复习到期。其余功能用到时再看。',
-      act: 'guideDone',
-      tip: '首页顶部的卡片会告诉你下一步该干嘛'
+      tip: '首页顶部的卡片会一直告诉你下一步该干嘛',
+      stat: function () { return '前面 5 步都完成了'; },
+      done: function () { return false; }
     }
   ];
 
-  function showGuide(step) {
-    var g = GUIDE[step];
-    if (!g) return;
-    // 一显示就标记已看过：否则用户没走完流程（比如中途关页面）下次还会弹
-    if (step === 0 && !S.guided) { S.guided = 1; save(); }
-    var box = document.createElement('div');
-    box.id = 'guideBox';
-    box.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(20,26,40,.62);' +
-      'display:flex;align-items:center;justify-content:center;padding:22px';
-    box.innerHTML = '<div style="background:#fff;border-radius:16px;padding:20px;max-width:340px;width:100%">' +
-      '<div style="font-size:16px;font-weight:600;margin-bottom:8px">' + esc(g.t) + '</div>' +
-      '<div class="muted" style="font-size:13.5px;line-height:1.75;margin-bottom:12px">' + esc(g.d) + '</div>' +
-      '<div style="background:#f2f7ff;border-radius:9px;padding:10px;font-size:12.5px;color:#3b6ef6;margin-bottom:16px">' +
-      esc(g.tip) + '</div>' +
-      '<div class="row"><button class="btn" id="gGo" style="flex:1">开始</button>' +
-      '<button class="btn gray" id="gSkip">跳过引导</button></div>' +
-      '<div class="center muted mt" style="font-size:12px">' + (step + 1) + ' / ' + GUIDE.length + '</div>' +
-      '</div>';
-    mountLayer(box);
-    document.getElementById('gSkip').onclick = function () {
-      S.guided = 1; save(); box.remove();
-    };
-    document.getElementById('gGo').onclick = function () { box.remove(); ACT[g.act](); };
+  /* 各处动作调用：标记某一步完成 */
+  function markGuide(k) {
+    var g = gState();
+    if (g.off) return;
+    if (g.done[k]) return;
+    g.done[k] = 1; save();
+    if (typeof guideTick === 'function') guideTick();
   }
 
+  var guideTimer = null;
+  function guideTick() {
+    var g = gState();
+    var el = document.getElementById('guideBox');
+    if (!el) { if (guideTimer) { clearInterval(guideTimer); guideTimer = null; } return; }
+    var st = GUIDE[g.i];
+    if (!st) { el.remove(); return; }
+    var sEl = document.getElementById('gStat');
+    if (sEl) sEl.textContent = st.stat();
+    Array.prototype.forEach.call(el.querySelectorAll('[data-dot]'), function (d) {
+      var k2 = d.dataset.dot;
+      d.className = 'gdot' + (g.done[k2] ? ' ok' : (st.k === k2 ? ' cur' : ''));
+      d.textContent = g.done[k2] ? '✓' : '';
+    });
+    var b = document.getElementById('gGo');
+    if (b) b.textContent = g.done[st.k] ? '下一步' : '去操作';
+    /* 完成自动进下一步。
+       用 passed 而不是 done 判断：markGuide 会提前把 done 置 1，
+       用 !done 做条件会恒假 → 卡在当前步不推进（实测踩过）。 */
+    if (!g.passed[st.k] && st.done && st.done()) {
+      g.passed[st.k] = 1; g.done[st.k] = 1; save();
+      if (st.k !== 'finish') {
+        g.i = Math.min(g.i + 1, GUIDE.length - 1); save();
+        setTimeout(function () { showGuide(); }, 550);
+      }
+    }
+  }
+
+  function showGuide() {
+    var g = gState();
+    if (g.off) return;
+    var st = GUIDE[g.i];
+    if (!st) return;
+    // 一显示就标记已看过：用户中途关页面也不会下次再弹
+    if (!S.guided) { S.guided = 1; save(); }
+
+    var box = document.createElement('div');
+    box.id = 'guideBox';
+    /* 放底部导航上方，不遮挡操作。
+       原来的全屏遮罩会盖住按钮，用户没法一边看提示一边动手。 */
+    box.style.cssText = 'position:fixed;left:10px;right:10px;bottom:58px;z-index:220;' +
+      'background:#fff;border-radius:14px;padding:14px 15px;' +
+      'box-shadow:0 6px 24px rgba(28,35,51,.22);border:1px solid #e6eaf2';
+    var h = '';
+    h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:9px">' +
+      GUIDE.map(function (x) {
+        return '<span class="gdot' + (g.done[x.k] ? ' ok' : (x.k === st.k ? ' cur' : '')) +
+          '" data-dot="' + x.k + '">' + (g.done[x.k] ? '✓' : '') + '</span>';
+      }).join('') +
+      '<span class="muted" style="font-size:11.5px;margin-left:auto">' +
+      (g.i + 1) + ' / ' + GUIDE.length + '</span></div>';
+    h += '<div style="font-size:15px;font-weight:600;margin-bottom:5px">' + esc(st.t) + '</div>';
+    h += '<div class="muted" style="font-size:12.8px;line-height:1.7;margin-bottom:8px">' + esc(st.d) + '</div>';
+    h += '<div style="background:#f2f7ff;border-radius:8px;padding:8px 10px;font-size:12.5px;' +
+      'color:#3b6ef6;margin-bottom:8px">' + esc(st.tip) + '</div>';
+    h += '<div style="font-size:12.5px;font-weight:600;margin-bottom:9px" id="gStat">' + st.stat() + '</div>';
+    h += '<div class="row"><button class="btn sm" id="gGo" style="flex:1">' +
+      (g.done[st.k] ? '下一步' : '去操作') + '</button>' +
+      '<button class="btn sm plain" id="gSkip">跳过引导</button></div>';
+    box.innerHTML = h;
+    mountLayer(box);
+
+    document.getElementById('gSkip').onclick = function () {
+      g.off = 1; save(); box.remove();
+      if (guideTimer) { clearInterval(guideTimer); guideTimer = null; }
+      toast('随时可在「我的 → 重看新手引导」再打开');
+    };
+    document.getElementById('gGo').onclick = function () {
+      var cur = GUIDE[g.i];
+      if (g.done[cur.k] && cur.k !== 'finish') {
+        g.i = Math.min(g.i + 1, GUIDE.length - 1); save(); showGuide(); return;
+      }
+      if (ACT[cur.act]) ACT[cur.act]();
+    };
+    if (guideTimer) clearInterval(guideTimer);
+    guideTimer = setInterval(guideTick, 800);
+  }
+
+  /* 引导第 1 步：跳到首页并预填示例词。
+     注意：替换引导块时这一度被漏掉，导致按钮点了没反应。 */
   ACT.goHomeAdd = function () {
     go('home');
     setTimeout(function () {
       var ta = document.querySelector('#inWords');
-      if (ta && !ta.value) {
-        ta.value = 'negotiate, strawberry, variable';
-        ACT.checkIn();
+      if (ta) {
         ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (!ta.value.trim()) ta.value = 'negotiate, strawberry, variable';
+        ta.focus();
       }
-      // 监听是否真的加了词
-      var n0 = allWords().length;
-      var iv = setInterval(function () {
-        if (allWords().length > n0) {
-          clearInterval(iv);
-          setTimeout(function () { showGuide(1); }, 400);
-        }
-      }, 600);
-      setTimeout(function () { clearInterval(iv); }, 120000);
-    }, 350);
+    }, 320);
+  };
+
+  ACT.goLib = function () { go('lib'); };
+  ACT.goPaper = function () { go('paper'); };
+  ACT.goBackup = function () {
+    go('me');
+    setTimeout(function () {
+      var gp = document.querySelector('.grp[data-grp="数据备份"]');
+      if (gp) {
+        if (!gp.classList.contains('open')) gp.querySelector('h4').click();
+        setTimeout(function () { gp.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 220);
+      }
+    }, 320);
+  };
+
+  ACT.guideDone = function () {
+    var g = gState();
+    g.off = 1; save();
+    var b = document.getElementById('guideBox');
+    if (b) b.remove();
+    if (guideTimer) { clearInterval(guideTimer); guideTimer = null; }
+    toast('搞定！核心就三步：加词 → 练习 → 复习到期');
   };
 
   ACT.goPractice1 = function () {
-    go('practice');
-    setTimeout(function () {
-      var iv = setInterval(function () {
-        var el = document.querySelector('[data-act=startPractice]') ||
-                 document.querySelector('[data-act=quickPractice]');
-        if (el) { clearInterval(iv); el.click(); }
-      }, 400);
-      setTimeout(function () { clearInterval(iv); }, 8000);
-      // 做完一题后进入第三步
-      var iv2 = setInterval(function () {
-        if (TAB === 'practice' && QZ && QZ.i > 0) {
-          clearInterval(iv2);
-          setTimeout(function () { showGuide(2); }, 600);
-        }
-      }, 700);
-      setTimeout(function () { clearInterval(iv2); }, 180000);
-    }, 300);
+    PS.scope = 'all'; PS.tag = '__all';
+    startPractice('all');
   };
 
-  ACT.guideDone = function () { S.guided = 1; save(); toast('搞定！开始用吧'); };
-
-  /* 随时可重看的「使用指南」：把首次引导变成一个可以主动打开的入口 */
-  ACT.replayGuide = function () { S.guided = 0; save(); showGuide(0); };
-
+  ACT.replayGuide = function () {
+    var g = gState();
+    g.off = 0; g.i = 0; g.done = {}; g.passed = {}; g.quizN = 0;
+    S.guided = 0; save();
+    showGuide();
+  };
   /* 使用指南页：交互式，不是纯文本。
      每一条都带一个「直接去做」的按钮，看说明的同时就能操作。 */
   ACT.showHelp = function () {
@@ -2865,7 +2967,7 @@
   };
 
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '2-7-1', APP_BUILD = 2026012306;
+  var APP_VER = '2-8-0', APP_BUILD = 2026012401;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -3422,6 +3524,7 @@
     save(); toast('已保存');
   };
   ACT.export = function () {
+    markGuide('backup');
     var data = JSON.stringify(S);
     var blob = new Blob([data], { type: 'application/json' });
     var a = document.createElement('a');

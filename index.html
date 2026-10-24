@@ -105,6 +105,11 @@ nav button.on i{opacity:1;font-size:22px;transform:translateY(-1px)}
 .pill.ok{background:#e9fbf3;color:#0a7f5c}
 .pill.bad{background:#ffeeef;color:#c2373d}
 .pill.warn{background:#fff4e0;color:#b07800}
+/* 引导进度点：完成=绿勾，当前=蓝，未做=灰 */
+.gdot{width:15px;height:15px;border-radius:50%;background:#e6eaf2;display:inline-flex;
+  align-items:center;justify-content:center;font-size:10px;color:#fff;flex:0 0 auto}
+.gdot.cur{background:var(--pri);box-shadow:0 0 0 3px rgba(59,110,246,.18)}
+.gdot.ok{background:var(--ok)}
 .list-item{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);gap:10px}
 .list-item:last-child{border-bottom:none}
 .list-item .t{flex:1;min-width:0}
