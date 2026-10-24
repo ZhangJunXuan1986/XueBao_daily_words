@@ -484,6 +484,19 @@
     var goal = S.settings.daily || 20;
     var pct = Math.min(100, Math.round(ids.length / goal * 100));
     var h = '';
+    /* 「该备份了」提醒。
+       云同步没跑通，本地备份就是唯一的保命手段——但它要用户记得去做。
+       词数超 20 且 7 天没备份才提醒，不打扰。 */
+    var wn = Object.keys(S.words || {}).length;
+    var stale = !S.lastExport || (Date.now() - S.lastExport > 7 * 864e5);
+    if (wn >= 20 && stale) {
+      h += '<div class="card" style="background:#fff8e6;border:1px solid #ffe0a3">' +
+        '<div class="row" style="align-items:center;gap:10px">' +
+        '<span style="font-size:22px">💾</span>' +
+        '<div style="flex:1"><b style="font-size:13.5px">词库有 ' + wn + ' 个词了，导出一份存微信吧</b>' +
+        '<div class="muted small">数据只在这台手机，清缓存就没了。30 秒保命。</div></div>' +
+        '<button class="btn sm" data-act="goBackup">去备份</button></div></div>';
+    }
     h += '<div class="card"><h3>今日进度 <span class="muted">' + today() + '</span></h3>' +
       '<div class="stat"><div><b>' + ids.length + '</b><span>今日新增</span></div>' +
       '<div><b>' + due.length + '</b><span>待复习</span></div>' +
@@ -2967,7 +2980,7 @@
   };
 
   /* ---------------- 版本检测与自动更新 ---------------- */
-  var APP_VER = '2-8-0', APP_BUILD = 2026012401;
+  var APP_VER = '2-8-3', APP_BUILD = 2026012403;
 
   function checkVersion() {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
@@ -3052,86 +3065,113 @@
 
   function cbUser() { return CB.auth && CB.auth.currentUser; }
 
-  ACT.cbRegister = function () {
-    var u = ($('#cbUser').value || '').trim(), p = ($('#cbPass').value || '').trim();
-    var env = (S.settings.cbEnv || '').trim();
-    if (!env) { alert('请先填云开发环境 ID'); return; }
-    if (u.length < 3 || p.length < 6) { alert('用户名至少 3 位，密码至少 6 位'); return; }
-    toast('正在注册…');
-    cbInit(env).then(function () {
-      return CB.auth.signUpWithUsernameAndPassword(u, p);
-    }).then(function () {
-      return CB.auth.signInWithUsernameAndPassword(u, p);
-    }).then(function () {
-      S.user = { username: u, nickname: u }; S.token = 'cb:' + u;
-      S.settings.apiKind = 'cb'; save(); render();
-      toast('注册成功，已登录：' + u);
-    }).catch(function (e) {
-      alert('注册失败：' + (e && e.message ? e.message : e) +
-        '\n\n如果提示未开启，去云开发控制台 → 登录授权 → 开启「用户名密码登录」。');
-    });
-  };
+  /* 用户名密码方案。
+     控制台已启用「用户名密码」登录，且开了「自动注册并登录」——
+     账号不存在时调登录接口会自动建号，所以一个按钮就够，不用先注册。 */
+  function cbReady(env) {
+    if (!env) return Promise.reject(new Error('还没填云开发环境 ID'));
+    return cbInit(env);
+  }
+  function cbSignIn(user, pass) {
+    if (!CB.auth) return Promise.reject(new Error('SDK 未初始化'));
+    var u = cbUser();
+    if (u) return Promise.resolve(u);
+    if (!CB.auth.signInWithUsernameAndPassword) {
+      return Promise.reject(new Error('当前 SDK 不支持用户名密码登录'));
+    }
+    return CB.auth.signInWithUsernameAndPassword(user, pass);
+  }
+  function cbColl() { return CB.db.collection('backups'); }
 
   ACT.cbLogin = function () {
-    var u = ($('#cbUser').value || '').trim(), p = ($('#cbPass').value || '').trim();
-    var env = (S.settings.cbEnv || '').trim();
-    if (!env) { alert('请先填云开发环境 ID'); return; }
-    if (!u || !p) { alert('请输入用户名和密码'); return; }
+    /* 顺序：先查环境 ID，再查用户名密码。
+       反过来会让用户明明没填环境 ID，却先看到「用户名至少 3 位」——误导。 */
+    var env = ($('#cbEnv') && $('#cbEnv').value || S.settings.cbEnv || '').trim();
+    if (!env) { alert('请先填云开发环境 ID（云开发控制台「概览」页复制）'); return; }
+    S.settings.cbEnv = env;
+    var u = ($('#cbUser').value || '').trim();
+    var p = ($('#cbPass').value || '').trim();
+    if (!env) { alert('还没填云开发环境 ID'); return; }
+    if (u.length < 3) { alert('用户名至少 3 位'); return; }
+    if (p.length < 6) { alert('密码至少 6 位'); return; }
     toast('登录中…');
-    cbInit(env).then(function () {
-      return CB.auth.signInWithUsernameAndPassword(u, p);
-    }).then(function () {
-      S.user = { username: u, nickname: u }; S.token = 'cb:' + u;
-      S.settings.apiKind = 'cb'; save(); render();
-      toast('登录成功：' + u);
-      ACT.cbPull();
-    }).catch(function (e) {
-      alert('登录失败：' + (e && e.message ? e.message : e));
-    });
+    cbReady(env).then(function () { return cbSignIn(u, p); })
+      .then(function () {
+        S.user = { username: u, nickname: u };
+        S.token = 'cb:' + u;
+        S.settings.apiKind = 'cb';
+        save(); render();
+        toast('已登录：' + u);
+      })
+      .catch(function (e) {
+        var m = (e && e.message ? e.message : e) + '';
+        alert('登录失败：' + m + '\n\n常见原因：\n' +
+          '1. 控制台没启用「用户名密码」登录\n' +
+          '2. 安全域名没加 zhangjunxuan1986.github.io\n' +
+          '3. 环境 ID 填错');
+      });
+  };
+
+  ACT.cbLogout = function () {
+    S.user = null; S.token = ''; save(); render(); toast('已退出（本地数据还在）');
   };
 
   ACT.cbPush = function () {
-    if (!CB.ready) { alert('请先登录'); return; }
-    var me = cbUser(); if (!me) { alert('请先登录'); return; }
-    var list = allWords().map(function (w) {
-      return { word: w.w, cn: w.cn || '', ph: w.ph || '', tags: w.tags || [],
-               box: w.box || 0, due: w.due || '', ok: w.ok || 0, bad: w.bad || 0,
-               uid: me.uid };
-    });
-    if (!list.length) { alert('本地还没有单词'); return; }
-    toast('正在上传 ' + list.length + ' 个单词…');
-    var col = CB.db.collection('words');
-    var jobs = [];
-    // 先拉一份线上已有，决定新增还是更新
-    col.where({ uid: me.uid }).limit(1000).get().then(function (r) {
-      var have = {};
-      (r.data || []).forEach(function (d) { have[d.word] = d._id; });
-      list.forEach(function (w) {
-        if (have[w.word]) jobs.push(col.doc(have[w.word]).update(w));
-        else jobs.push(col.add(w));
+    var nm = (S.user && S.user.username) || '';
+    if (!nm) { alert('先登录'); return; }
+    toast('备份中…');
+    var payload = {
+      name: nm,
+      data: JSON.stringify(S),
+      n: Object.keys(S.words || {}).length,
+      ts: Date.now()
+    };
+    cbReady((S.settings.cbEnv || '').trim())
+      .then(function () { return cbColl().where({ name: nm }).get(); })
+      .then(function (r) {
+        var list = (r && r.data) || [];
+        if (list.length) return cbColl().doc(list[0]._id).update({ data: payload.data, n: payload.n, ts: payload.ts });
+        return cbColl().add(payload);
+      })
+      .then(function () {
+        S.cbLastPush = Date.now(); save(); render();
+        toast('已备份 ' + payload.n + ' 词到云端');
+      })
+      .catch(function (e) {
+        var m = (e && e.message ? e.message : e) + '';
+        // 最常见的失败：集合权限还是默认的「仅创建者可读写」
+        if (/permission|PERMISSION|权限/i.test(m)) {
+          alert('没有写入权限。\n\n去控制台 → 文档型数据库 → backups 集合 → 权限设置，\n' +
+            '改成「所有用户可读，仅创建者可写」。');
+        } else alert('备份失败：' + m);
       });
-      return Promise.all(jobs);
-    }).then(function () {
-      toast('已备份到云端：' + list.length + ' 词');
-    }).catch(function (e) { alert('上传失败：' + (e && e.message ? e.message : e)); });
   };
 
   ACT.cbPull = function () {
-    if (!CB.ready) { alert('请先登录'); return; }
-    var me = cbUser(); if (!me) { alert('请先登录'); return; }
-    toast('正在从云端恢复…');
-    CB.db.collection('words').where({ uid: me.uid }).limit(1000).get().then(function (r) {
-      var n = 0;
-      (r.data || []).forEach(function (w) {
-        var e = addWord(w.word, w.cn, w.ph, w.tags || []);
-        if (e) { e.box = w.box || 0; e.due = w.due || ''; e.ok = w.ok || 0; e.bad = w.bad || 0; n++; }
+    var nm = (S.user && S.user.username) || '';
+    if (!nm) { alert('先登录'); return; }
+    toast('查找中…');
+    cbReady((S.settings.cbEnv || '').trim())
+      .then(function () { return cbColl().where({ name: nm }).get(); })
+      .then(function (r) {
+        var list = (r && r.data) || [];
+        if (!list.length) { alert('云端没有「' + nm + '」的备份'); return null; }
+        var o = JSON.parse(list[0].data);
+        if (!o || !o.words) throw new Error('备份内容不完整');
+        if (!confirm('找到 ' + Object.keys(o.words).length + ' 词，会用云端覆盖本地，确定？')) return null;
+        S = o; load2(); save(); render();
+        toast('已恢复 ' + Object.keys(S.words).length + ' 词');
+        return true;
+      })
+      .catch(function (e) {
+        if (e && e.message !== '取消') alert('恢复失败：' + (e && e.message ? e.message : e));
       });
-      save(); render(); toast('已恢复 ' + n + ' 个单词');
-    }).catch(function (e) { alert('恢复失败：' + (e && e.message ? e.message : e)); });
   };
 
   ACT.saveCbEnv = function () {
-    S.settings.cbEnv = ($('#cbEnv').value || '').trim();
+    var v = ($('#cbEnv') && $('#cbEnv').value || '').trim();
+    if (!v) { alert('环境 ID 不能为空'); return; }
+    S.settings.cbEnv = v;
     S.settings.apiKind = 'cb';
     save(); toast('环境 ID 已保存');
   };
@@ -3322,9 +3362,9 @@
 
     if (kind === 'cb') {
       loginBody += '<label class="f">云开发环境 ID</label>' +
-        '<input type="text" id="cbEnv" placeholder="如：abc-1x2y3z" value="' + esc(S.settings.cbEnv || '') + '">' +
-        '<div class="muted mt small">在腾讯云开发控制台创建环境后复制环境 ID。' +
-        '<b>还要去「登录授权」里开启「用户名密码登录」</b>，否则注册会失败。</div>' +
+        '<input type="text" id="cbEnv" placeholder="如：xuebao-daily-words-1gxxxxxx" value="' + esc(S.settings.cbEnv || 'xuebao-daily-words-d4c66fdbff50d') + '">' +
+        '<div class="muted mt small">在云开发控制台「概览」页复制。' +
+        '<b>还要启用「用户名密码」登录</b>，否则登不上。</div>' +
         '<div class="row mt"><button class="btn sm light" data-act="saveCbEnv">保存环境 ID</button></div>';
     } else {
       loginBody += '<label class="f">后端地址</label>' +
@@ -3335,7 +3375,8 @@
     if (S.token && S.user) {
       loginBody += '<div class="mt"><div class="list-item"><div class="t"><b>已登录：' + esc(S.user.nickname || S.user.username) + '</b>' +
         '<span>' + esc(S.user.username) + '</span></div>' +
-        '<button class="btn sm gray" data-act="doLogout">退出</button></div></div>' +
+        '<button class="btn sm gray" data-act="' +
+        ((S.settings.apiKind || 'self') === 'cb' ? 'cbLogout' : 'doLogout') + '">退出</button></div></div>' +
         '<div id="cloudStats" class="mt"></div>' +
         '<div class="row mt"><button class="btn" data-act="' +
         ((S.settings.apiKind || 'self') === 'cb' ? 'cbPush' : 'pushWords') + '">⬆️ 备份到云端</button>' +
@@ -3343,12 +3384,22 @@
         ((S.settings.apiKind || 'self') === 'cb' ? 'cbPull' : 'pullWords') + '">⬇️ 从云端恢复</button></div>';
     } else {
       var isCb = (S.settings.apiKind || 'self') === 'cb';
-      loginBody += '<label class="f">用户名（至少 3 位）</label>' +
-        '<input type="text" id="' + (isCb ? 'cbUser' : 'auUser') + '" autocomplete="off" placeholder="例如：zhongshan01">' +
-        '<label class="f">密码（至少 6 位）</label>' +
-        '<input type="password" id="' + (isCb ? 'cbPass' : 'auPass') + '" autocomplete="new-password" placeholder="至少 6 位">' +
-        '<div class="row mt"><button class="btn" data-act="' + (isCb ? 'cbRegister' : 'doRegister') + '">注册</button>' +
-        '<button class="btn gray" data-act="' + (isCb ? 'cbLogin' : 'doLogin') + '">登录</button></div>';
+      if (isCb) {
+        loginBody += '<label class="f">用户名（至少 3 位）</label>' +
+          '<input type="text" id="cbUser" autocomplete="off" placeholder="例如：zhongshan01">' +
+          '<label class="f">密码（至少 6 位）</label>' +
+          '<input type="password" id="cbPass" autocomplete="current-password" placeholder="至少 6 位">' +
+          '<div class="muted mt small">控制台开了「自动注册并登录」，' +
+          '<b>账号不存在会自动创建</b>，直接登录就行。</div>' +
+          '<div class="row mt"><button class="btn" data-act="cbLogin">登录 / 注册</button></div>';
+      } else {
+        loginBody += '<label class="f">用户名（至少 3 位）</label>' +
+          '<input type="text" id="auUser" autocomplete="off" placeholder="例如：zhongshan01">' +
+          '<label class="f">密码（至少 6 位）</label>' +
+          '<input type="password" id="auPass" autocomplete="new-password" placeholder="至少 6 位">' +
+          '<div class="row mt"><button class="btn" data-act="doRegister">注册</button>' +
+          '<button class="btn gray" data-act="doLogin">登录</button></div>';
+      }
     }
     // 账户分组：用户没手动设置过时默认展开（登录后备份按钮要可见）
     var gst = grpState();
@@ -3524,6 +3575,7 @@
     save(); toast('已保存');
   };
   ACT.export = function () {
+    S.lastExport = Date.now();
     markGuide('backup');
     var data = JSON.stringify(S);
     var blob = new Blob([data], { type: 'application/json' });
